@@ -16,19 +16,17 @@ class IncludeDirective:
 class ParseResult:
     devices: dict[str, FhemDevice]
     device_definitions: list[FhemDevice]
+    attribute_definitions: list[FhemAttribute]
     includes: list[IncludeDirective]
 
 
 class FhemConfigParser:
-    """Best-effort parser for a subset of FHEM config syntax.
-
-    Intentionally limited to define/attr/include lines and ignores Perl blocks.
-    Supports simple line continuations ending with a backslash.
-    """
+    """Best-effort parser for a subset of FHEM config syntax."""
 
     def parse_file(self, file_path: Path) -> ParseResult:
         devices: dict[str, FhemDevice] = {}
         device_definitions: list[FhemDevice] = []
+        attribute_definitions: list[FhemAttribute] = []
         includes: list[IncludeDirective] = []
 
         with file_path.open("r", encoding="utf-8") as handle:
@@ -54,6 +52,7 @@ class FhemConfigParser:
                     buffered_line,
                     devices,
                     device_definitions,
+                    attribute_definitions,
                     includes,
                 )
                 buffered_line = ""
@@ -66,10 +65,16 @@ class FhemConfigParser:
                     buffered_line,
                     devices,
                     device_definitions,
+                    attribute_definitions,
                     includes,
                 )
 
-        return ParseResult(devices=devices, device_definitions=device_definitions, includes=includes)
+        return ParseResult(
+            devices=devices,
+            device_definitions=device_definitions,
+            attribute_definitions=attribute_definitions,
+            includes=includes,
+        )
 
     @staticmethod
     def _is_continuation(line: str) -> bool:
@@ -90,6 +95,7 @@ class FhemConfigParser:
         raw_line: str,
         devices: dict[str, FhemDevice],
         device_definitions: list[FhemDevice],
+        attribute_definitions: list[FhemAttribute],
         includes: list[IncludeDirective],
     ) -> None:
         stripped = raw_line.strip()
@@ -128,6 +134,7 @@ class FhemConfigParser:
                 value=value,
                 source=source,
             )
+            attribute_definitions.append(attr)
             device = devices.get(device_name)
             if device is not None:
                 device.attributes.append(attr)

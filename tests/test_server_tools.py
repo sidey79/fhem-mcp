@@ -83,3 +83,21 @@ def test_missing_include_is_best_effort_non_fatal() -> None:
     names = {d["name"] for d in devices}
     assert "before" in names
     assert "after" in names
+
+
+def test_attrs_across_include_boundaries() -> None:
+    server = FhemMcpServer(config_root=Path("tests/fixtures"))
+
+    sensor = server.get_device("fhem.cfg", "tempSensor")
+    assert sensor is not None
+    attr_names = {attr["name"] for attr in sensor["attributes"]}
+    assert "room" in attr_names
+
+
+def test_parent_attr_applies_to_device_defined_in_include() -> None:
+    server = FhemMcpServer(config_root=Path("tests/fixtures"))
+
+    device = server.get_device("include_attr_parent.cfg", "incDev")
+    assert device is not None
+    attrs = {attr["name"]: attr["value"] for attr in device["attributes"]}
+    assert attrs["alias"] == "From Parent"

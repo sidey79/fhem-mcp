@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from .models import FhemDevice
+from .models import FhemAttribute, FhemDevice
 from .parser import FhemConfigParser, IncludeDirective
 
 
@@ -12,9 +12,10 @@ from .parser import FhemConfigParser, IncludeDirective
 class ParseEvent:
     line_number: int
     sequence: int
-    event_type: Literal["define", "include"]
+    event_type: Literal["define", "attr", "include"]
     device: FhemDevice | None = None
     include: IncludeDirective | None = None
+    attribute: FhemAttribute | None = None
 
 
 class FhemMcpServer:
@@ -56,6 +57,17 @@ class FhemMcpServer:
             )
             sequence += 1
 
+        for attr in parsed.attribute_definitions:
+            events.append(
+                ParseEvent(
+                    line_number=attr.source.line_number,
+                    sequence=sequence,
+                    event_type="attr",
+                    attribute=attr,
+                )
+            )
+            sequence += 1
+
         for inc in parsed.includes:
             events.append(
                 ParseEvent(
@@ -85,6 +97,14 @@ class FhemMcpServer:
                 if event.event_type == "define":
                     if event.device is not None:
                         devices[event.device.name] = event.device
+                    continue
+
+                if event.event_type == "attr":
+                    if event.attribute is None:
+                        continue
+                    target = devices.get(event.attribute.device_name)
+                    if target is not None:
+                        target.attributes.append(event.attribute)
                     continue
 
                 if event.include is None:
