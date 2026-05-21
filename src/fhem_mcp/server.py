@@ -40,12 +40,25 @@ class FhemMcpServer:
             visited.add(resolved)
 
             parsed = self.parser.parse_file(resolved)
-            devices.update(parsed.devices)
+
+            events: list[tuple[int, str, object]] = []
+            events.extend((dev.source.line_number, "define", dev) for dev in parsed.device_definitions)
+            events.extend((inc.source.line_number, "include", inc) for inc in parsed.includes)
+            events.sort(key=lambda item: item[0])
 
             parent_dir = resolved.parent
-            for include in parsed.includes:
-                include_path = self._resolve_abs_in_root(parent_dir / include.path_token)
-                visit(include_path)
+            for _, event_type, payload in events:
+                if event_type == "define":
+                    dev = payload
+                    devices[dev.name] = dev
+                    continue
+
+                include = payload
+                try:
+                    include_path = self._resolve_abs_in_root(parent_dir / include.path_token)
+                    visit(include_path)
+                except (ValueError, OSError):
+                    continue
 
         visit(entry_file)
         return devices

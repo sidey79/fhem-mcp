@@ -66,3 +66,20 @@ def test_get_device_from_included_file() -> None:
     sensor = server.get_device("fhem.cfg", "tempSensor")
     assert sensor is not None
     assert sensor["device_type"] == "MQTT2_DEVICE"
+
+
+def test_include_order_respects_parent_sequence() -> None:
+    server = FhemMcpServer(config_root=Path("tests/fixtures"))
+
+    lamp = server.get_device("include_order.cfg", "lamp")
+    assert lamp is not None
+    assert lamp["definition_tokens"] == ["B"]
+
+
+def test_missing_include_is_best_effort_non_fatal() -> None:
+    server = FhemMcpServer(config_root=Path("tests/fixtures"))
+
+    devices = server.list_devices("include_missing.cfg")
+    names = {d["name"] for d in devices}
+    assert "before" in names
+    assert "after" in names

@@ -15,6 +15,7 @@ class IncludeDirective:
 @dataclass
 class ParseResult:
     devices: dict[str, FhemDevice]
+    device_definitions: list[FhemDevice]
     includes: list[IncludeDirective]
 
 
@@ -27,6 +28,7 @@ class FhemConfigParser:
 
     def parse_file(self, file_path: Path) -> ParseResult:
         devices: dict[str, FhemDevice] = {}
+        device_definitions: list[FhemDevice] = []
         includes: list[IncludeDirective] = []
 
         with file_path.open("r", encoding="utf-8") as handle:
@@ -51,6 +53,7 @@ class FhemConfigParser:
                     buffered_start_line if buffered_start_line is not None else idx,
                     buffered_line,
                     devices,
+                    device_definitions,
                     includes,
                 )
                 buffered_line = ""
@@ -62,10 +65,11 @@ class FhemConfigParser:
                     buffered_start_line if buffered_start_line is not None else 1,
                     buffered_line,
                     devices,
+                    device_definitions,
                     includes,
                 )
 
-        return ParseResult(devices=devices, includes=includes)
+        return ParseResult(devices=devices, device_definitions=device_definitions, includes=includes)
 
     @staticmethod
     def _is_continuation(line: str) -> bool:
@@ -85,6 +89,7 @@ class FhemConfigParser:
         line_number: int,
         raw_line: str,
         devices: dict[str, FhemDevice],
+        device_definitions: list[FhemDevice],
         includes: list[IncludeDirective],
     ) -> None:
         stripped = raw_line.strip()
@@ -103,12 +108,14 @@ class FhemConfigParser:
         if keyword == "define" and len(parts) >= 3:
             name = parts[1]
             device_type = parts[2]
-            devices[name] = FhemDevice(
+            defined_device = FhemDevice(
                 name=name,
                 device_type=device_type,
                 definition_tokens=parts[3:],
                 source=source,
             )
+            devices[name] = defined_device
+            device_definitions.append(defined_device)
             return
 
         if keyword == "attr" and len(parts) >= 4:
