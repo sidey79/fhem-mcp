@@ -10,21 +10,28 @@ class FhemMcpServer:
     """Read-only Phase 1 MCP tool surface for source-view operations."""
 
     def __init__(self, config_root: Path) -> None:
-        self.config_root = config_root
+        self.config_root = config_root.resolve()
         self.parser = FhemConfigParser()
+
+    def _resolve_in_root(self, relative_path: str) -> Path:
+        target = (self.config_root / relative_path).resolve()
+        try:
+            target.relative_to(self.config_root)
+        except ValueError as exc:
+            raise ValueError("Path escapes config root") from exc
+        return target
 
     def list_config_files(self) -> list[str]:
         files = sorted(self.config_root.glob("**/*.cfg"))
         return [str(path.relative_to(self.config_root)) for path in files]
 
     def read_config_file(self, relative_path: str) -> str:
-        file_path = (self.config_root / relative_path).resolve()
-        if not str(file_path).startswith(str(self.config_root.resolve())):
-            raise ValueError("Path escapes config root")
+        file_path = self._resolve_in_root(relative_path)
         return file_path.read_text(encoding="utf-8")
 
     def list_devices(self, relative_path: str) -> list[dict[str, str]]:
-        result = self.parser.parse_file(self.config_root / relative_path)
+        file_path = self._resolve_in_root(relative_path)
+        result = self.parser.parse_file(file_path)
         return [
             {
                 "name": dev.name,
@@ -36,7 +43,8 @@ class FhemMcpServer:
         ]
 
     def get_device(self, relative_path: str, device_name: str) -> dict | None:
-        result = self.parser.parse_file(self.config_root / relative_path)
+        file_path = self._resolve_in_root(relative_path)
+        result = self.parser.parse_file(file_path)
         device = result.devices.get(device_name)
         if device is None:
             return None
