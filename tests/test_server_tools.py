@@ -19,6 +19,7 @@ def test_list_devices_and_get_device() -> None:
 
     devices = server.list_devices("fhem.cfg")
     assert any(device["name"] == "lamp" for device in devices)
+    assert any(device["name"] == "tempSensor" for device in devices)
 
     lamp = server.get_device("fhem.cfg", "lamp")
     assert lamp is not None
@@ -57,3 +58,11 @@ def test_get_device_prevents_path_escape() -> None:
         pass
     else:
         raise AssertionError("Expected ValueError for escaped path")
+
+
+def test_get_device_from_included_file() -> None:
+    server = FhemMcpServer(config_root=Path("tests/fixtures"))
+
+    sensor = server.get_device("fhem.cfg", "tempSensor")
+    assert sensor is not None
+    assert sensor["device_type"] == "MQTT2_DEVICE"

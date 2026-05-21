@@ -55,3 +55,12 @@ def test_parser_handles_commandref_style_examples() -> None:
 
     assert len(result.includes) == 1
     assert result.includes[0].path_token == "rooms/common.cfg"
+
+
+def test_parser_continuation_with_trailing_spaces() -> None:
+    parser = FhemConfigParser()
+    result = parser.parse_file(Path("tests/fixtures/multiline_spaces.cfg"))
+
+    device = result.devices["s1"]
+    assert device.definition_tokens == ["value", "continued"]
+    assert device.attributes[0].value == "with spaces"

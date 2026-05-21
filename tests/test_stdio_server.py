@@ -53,3 +53,19 @@ def test_unknown_method_returns_jsonrpc_error() -> None:
     )
 
     assert responses[0]["error"]["code"] == -32601
+
+
+def test_tools_call_file_error_returns_jsonrpc_error() -> None:
+    responses = _run_server_lines(
+        [
+            {
+                "jsonrpc": "2.0",
+                "id": 12,
+                "method": "tools/call",
+                "params": {"name": "read_config_file", "arguments": {"relative_path": "missing.cfg"}},
+            }
+        ],
+        config_root=Path("tests/fixtures"),
+    )
+
+    assert responses[0]["error"]["code"] == -32002

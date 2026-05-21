@@ -43,7 +43,7 @@ class FhemConfigParser:
                     buffered_start_line = idx
 
                 if self._is_continuation(buffered_line):
-                    buffered_line = buffered_line[:-1].rstrip()
+                    buffered_line = self._strip_continuation_marker(buffered_line)
                     continue
 
                 self._parse_line(
@@ -72,8 +72,12 @@ class FhemConfigParser:
         stripped = line.rstrip()
         if not stripped.endswith("\\"):
             return False
-        # best effort: escaped backslash (\\\\) does not continue
         return len(stripped) < 2 or stripped[-2] != "\\"
+
+    @staticmethod
+    def _strip_continuation_marker(line: str) -> str:
+        stripped_right = line.rstrip()
+        return stripped_right[:-1].rstrip()
 
     def _parse_line(
         self,

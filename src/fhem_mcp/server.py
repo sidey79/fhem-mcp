@@ -21,6 +21,35 @@ class FhemMcpServer:
             raise ValueError("Path escapes config root") from exc
         return target
 
+    def _resolve_abs_in_root(self, path: Path) -> Path:
+        resolved = path.resolve()
+        try:
+            resolved.relative_to(self.config_root)
+        except ValueError as exc:
+            raise ValueError("Path escapes config root") from exc
+        return resolved
+
+    def _collect_devices_recursive(self, entry_file: Path) -> dict[str, FhemDevice]:
+        devices: dict[str, FhemDevice] = {}
+        visited: set[Path] = set()
+
+        def visit(path: Path) -> None:
+            resolved = self._resolve_abs_in_root(path)
+            if resolved in visited:
+                return
+            visited.add(resolved)
+
+            parsed = self.parser.parse_file(resolved)
+            devices.update(parsed.devices)
+
+            parent_dir = resolved.parent
+            for include in parsed.includes:
+                include_path = self._resolve_abs_in_root(parent_dir / include.path_token)
+                visit(include_path)
+
+        visit(entry_file)
+        return devices
+
     def list_config_files(self) -> list[str]:
         files = sorted(self.config_root.glob("**/*.cfg"))
         return [str(path.relative_to(self.config_root)) for path in files]
@@ -31,7 +60,7 @@ class FhemMcpServer:
 
     def list_devices(self, relative_path: str) -> list[dict[str, str]]:
         file_path = self._resolve_in_root(relative_path)
-        result = self.parser.parse_file(file_path)
+        devices = self._collect_devices_recursive(file_path)
         return [
             {
                 "name": dev.name,
@@ -39,13 +68,13 @@ class FhemMcpServer:
                 "source_file": str(dev.source.file_path),
                 "source_line": str(dev.source.line_number),
             }
-            for dev in result.devices.values()
+            for dev in devices.values()
         ]
 
     def get_device(self, relative_path: str, device_name: str) -> dict | None:
         file_path = self._resolve_in_root(relative_path)
-        result = self.parser.parse_file(file_path)
-        device = result.devices.get(device_name)
+        devices = self._collect_devices_recursive(file_path)
+        device = devices.get(device_name)
         if device is None:
             return None
         return self._serialize_device(device)

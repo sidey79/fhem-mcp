@@ -106,6 +106,10 @@ class StdioMcpServer:
             return self._error(req_id, -32001, str(exc))
         except KeyError as exc:
             return self._error(req_id, -32602, f"Missing parameter: {exc}")
+        except OSError as exc:
+            return self._error(req_id, -32002, str(exc))
+        except Exception as exc:
+            return self._error(req_id, -32000, f"Unhandled server error: {exc}")
 
     def _call_tool(self, params: dict[str, Any]) -> dict[str, Any]:
         tool_name = params["name"]
