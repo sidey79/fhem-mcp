@@ -1,9 +1,20 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 from .models import FhemDevice
-from .parser import FhemConfigParser
+from .parser import FhemConfigParser, IncludeDirective
+
+
+@dataclass(frozen=True)
+class ParseEvent:
+    line_number: int
+    sequence: int
+    event_type: Literal["define", "include"]
+    device: FhemDevice | None = None
+    include: IncludeDirective | None = None
 
 
 class FhemMcpServer:
@@ -29,6 +40,36 @@ class FhemMcpServer:
             raise ValueError("Path escapes config root") from exc
         return resolved
 
+    def _build_parse_events(self, resolved_file: Path) -> list[ParseEvent]:
+        parsed = self.parser.parse_file(resolved_file)
+        events: list[ParseEvent] = []
+
+        sequence = 0
+        for dev in parsed.device_definitions:
+            events.append(
+                ParseEvent(
+                    line_number=dev.source.line_number,
+                    sequence=sequence,
+                    event_type="define",
+                    device=dev,
+                )
+            )
+            sequence += 1
+
+        for inc in parsed.includes:
+            events.append(
+                ParseEvent(
+                    line_number=inc.source.line_number,
+                    sequence=sequence,
+                    event_type="include",
+                    include=inc,
+                )
+            )
+            sequence += 1
+
+        events.sort(key=lambda event: (event.line_number, event.sequence))
+        return events
+
     def _collect_devices_recursive(self, entry_file: Path) -> dict[str, FhemDevice]:
         devices: dict[str, FhemDevice] = {}
         visited: set[Path] = set()
@@ -39,25 +80,20 @@ class FhemMcpServer:
                 return
             visited.add(resolved)
 
-            parsed = self.parser.parse_file(resolved)
-
-            events: list[tuple[int, str, object]] = []
-            events.extend((dev.source.line_number, "define", dev) for dev in parsed.device_definitions)
-            events.extend((inc.source.line_number, "include", inc) for inc in parsed.includes)
-            events.sort(key=lambda item: item[0])
-
             parent_dir = resolved.parent
-            for _, event_type, payload in events:
-                if event_type == "define":
-                    dev = payload
-                    devices[dev.name] = dev
+            for event in self._build_parse_events(resolved):
+                if event.event_type == "define":
+                    if event.device is not None:
+                        devices[event.device.name] = event.device
                     continue
 
-                include = payload
+                if event.include is None:
+                    continue
                 try:
-                    include_path = self._resolve_abs_in_root(parent_dir / include.path_token)
+                    include_path = self._resolve_abs_in_root(parent_dir / event.include.path_token)
                     visit(include_path)
                 except (ValueError, OSError):
+                    # best-effort parsing: unresolved/invalid includes are ignored
                     continue
 
         visit(entry_file)
