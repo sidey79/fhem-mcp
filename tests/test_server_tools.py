@@ -152,3 +152,15 @@ def test_repeated_includes_are_reprocessed_in_order() -> None:
     lamp = server.get_device("include_repeat.cfg", "lamp")
     assert lamp is not None
     assert lamp["definition_tokens"] == ["CHILD"]
+
+
+def test_symlink_loop_include_is_best_effort_non_fatal(tmp_path: Path) -> None:
+    cfg = tmp_path / "fhem.cfg"
+    cfg.write_text("include loop.cfg\ndefine ok dummy 1\n", encoding="utf-8")
+    loop = tmp_path / "loop.cfg"
+    loop.symlink_to(loop)
+
+    server = FhemMcpServer(config_root=tmp_path)
+    devices = server.list_devices("fhem.cfg")
+
+    assert any(device["name"] == "ok" for device in devices)

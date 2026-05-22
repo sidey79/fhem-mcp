@@ -122,7 +122,7 @@ class FhemMcpServer:
                     try:
                         include_path = self._resolve_abs_in_root(parent_dir / event.include.path_token)
                         visit(include_path)
-                    except (ValueError, OSError):
+                    except (ValueError, OSError, RuntimeError):
                         # best-effort parsing: unresolved/invalid includes are ignored
                         continue
             finally:
