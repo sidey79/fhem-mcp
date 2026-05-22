@@ -59,6 +59,10 @@ def _build_parser() -> argparse.ArgumentParser:
     search.add_argument("pattern", help="Search pattern")
     search.add_argument("relative_path", nargs="?", default=None, help="Optional path relative to config-root")
 
+    refs = sub.add_parser("find_references", help="Find likely references with heuristic scoring")
+    refs.add_argument("reference", help="Reference token (e.g. device name)")
+    refs.add_argument("relative_path", nargs="?", default=None, help="Optional path relative to config-root")
+
     validate = sub.add_parser("validate_config", help="Validate basic config issues")
     validate.add_argument("relative_path", nargs="?", default=None, help="Optional path relative to config-root")
 
@@ -102,6 +106,8 @@ def main() -> None:
         result = server.list_config_summary(args.relative_path)
     elif args.command == "search_config":
         result = server.search_config(args.pattern, args.relative_path)
+    elif args.command == "find_references":
+        result = server.find_references(args.reference, args.relative_path)
     elif args.command == "validate_config":
         result = server.validate_config(args.relative_path)
     elif args.command == "get_device_full":

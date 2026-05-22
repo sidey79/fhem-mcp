@@ -26,6 +26,7 @@ fhem-mcp --config-root tests/fixtures find_devices_by_type fhem.cfg MQTT2_DEVICE
 fhem-mcp --config-root tests/fixtures list_includes fhem.cfg
 fhem-mcp --config-root tests/fixtures list_config_summary fhem.cfg
 fhem-mcp --config-root tests/fixtures search_config "attr tempSensor room" fhem.cfg
+fhem-mcp --config-root tests/fixtures find_references "tempSensor" fhem.cfg
 fhem-mcp --config-root tests/fixtures validate_config fhem.cfg
 fhem-mcp --config-root tests/fixtures get_device_full tempSensor
 ```

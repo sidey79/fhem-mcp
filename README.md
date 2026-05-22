@@ -37,6 +37,7 @@ Nicht enthalten in Phase 1 (Phase 2+):
 | `list_includes(relative_path)` | Zeigt Include-Struktur mit Auflösung und Existenzstatus. | `[{"include_path":"extras.cfg","resolved_path":"extras.cfg","exists":true}]` |
 | `list_config_summary(relative_path?)` | Liefert Kurzüberblick über Geräte, Typen, Raum-/Gruppenzuordnungen und Quellen. | `{"device_count":2,"type_counts":{"MQTT2_DEVICE":1,"dummy":1}}` |
 | `search_config(pattern, relative_path?)` | Sucht Textmuster in Configs (bei Entry-File inkl. Include-Baum). | `[{"file":"extras.cfg","line":2,"text":"attr tempSensor room Sensors,system->Datenbank"}]` |
+| `find_references(reference, relative_path?)` | Heuristische Referenzsuche mit Scoring (`0.0..1.0`) und Confidence. | `[{"file":"extras.cfg","line":2,"score":0.95,"confidence":"high"}]` |
 | `validate_config(relative_path?)` | Basisprüfung auf doppelte Geräte, kaputte `define/attr` und fehlende Includes. | `{"errors":[{"type":"missing_include","include_path":"missing.cfg"}]}` |
 | `get_device_full(device_name)` | Sucht Gerät repo-weit und liefert vollständige Device-Struktur. | `{"name":"tempSensor","device_type":"MQTT2_DEVICE","attributes":[...]} ` |
 

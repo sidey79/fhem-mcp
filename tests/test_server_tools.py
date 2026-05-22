@@ -332,3 +332,22 @@ def test_search_config_repo_wide_skips_unreadable_cfg(tmp_path: Path) -> None:
     matches = server.search_config("IMPORTANT")
 
     assert any(item["file"] == "good.cfg" for item in matches)
+
+def test_find_references_scores_and_sorts() -> None:
+    server = FhemMcpServer(config_root=Path("tests/fixtures"))
+
+    refs = server.find_references("tempSensor", "fhem.cfg")
+    assert refs
+    assert refs[0]["score"] >= refs[-1]["score"]
+    assert any(item["confidence"] in {"medium", "high"} for item in refs)
+    assert any(item["file"] == "extras.cfg" for item in refs)
+
+def test_find_references_rejects_empty_reference() -> None:
+    server = FhemMcpServer(config_root=Path("tests/fixtures"))
+
+    try:
+        server.find_references("   ", "fhem.cfg")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("Expected ValueError for empty reference")

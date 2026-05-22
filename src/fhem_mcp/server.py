@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 from pathlib import Path
 from typing import Literal
 
@@ -425,6 +426,98 @@ class FhemMcpServer:
                         }
                     )
         return matches
+
+    def find_references(self, reference: str, relative_path: str | None = None) -> list[dict[str, object]]:
+        if not reference.strip():
+            raise ValueError("reference must not be empty")
+
+        files: list[Path]
+        if relative_path is None:
+            files, _ = self._safe_resolve_cfg_files()
+        else:
+            file_path = self._resolve_in_root(relative_path)
+            self._ensure_cfg_file(file_path)
+            files = self._collect_cfg_files_recursive(file_path)
+
+        word_re = re.compile(r"(?<![A-Za-z0-9_])" + re.escape(reference) + r"(?![A-Za-z0-9_])")
+        results: list[dict[str, object]] = []
+
+        for path in files:
+            try:
+                lines = path.read_text(encoding="utf-8").splitlines()
+            except (OSError, RuntimeError):
+                continue
+
+            for idx, line in enumerate(lines, start=1):
+                stripped = line.strip()
+                if not stripped:
+                    continue
+
+                score = 0.0
+                evidence: list[str] = []
+
+                if word_re.search(line):
+                    score += 0.6
+                    evidence.append("word_match")
+                elif reference in line:
+                    score += 0.3
+                    evidence.append("substring_match")
+                else:
+                    continue
+
+                if stripped.startswith("define "):
+                    parts = stripped.split()
+                    if len(parts) >= 2 and parts[1] == reference:
+                        score += 0.35
+                        evidence.append("define_target")
+                    else:
+                        score += 0.1
+                        evidence.append("define_context")
+                elif stripped.startswith("attr "):
+                    parts = stripped.split()
+                    if len(parts) >= 2 and parts[1] == reference:
+                        score += 0.35
+                        evidence.append("attr_target")
+                    else:
+                        score += 0.1
+                        evidence.append("attr_context")
+                elif stripped.startswith("include "):
+                    score += 0.05
+                    evidence.append("include_context")
+                else:
+                    score += 0.05
+                    evidence.append("free_text_context")
+
+                lowered = stripped.lower()
+                if any(k in lowered for k in ("notify", "doif", "at ", "perl", "reading")):
+                    score += 0.1
+                    evidence.append("rule_context")
+
+                if stripped.startswith("#"):
+                    score -= 0.25
+                    evidence.append("comment_penalty")
+
+                score = max(0.0, min(1.0, round(score, 3)))
+                if score < 0.3:
+                    confidence = "low"
+                elif score < 0.7:
+                    confidence = "medium"
+                else:
+                    confidence = "high"
+
+                results.append(
+                    {
+                        "file": str(path.relative_to(self.config_root)),
+                        "line": idx,
+                        "text": line,
+                        "score": score,
+                        "confidence": confidence,
+                        "evidence": evidence,
+                    }
+                )
+
+        results.sort(key=lambda item: (-float(item["score"]), str(item["file"]), int(item["line"])))
+        return results
     def validate_config(self, relative_path: str | None = None) -> dict[str, list[dict[str, object]]]:
         files: list[Path]
         errors: list[dict[str, object]] = []

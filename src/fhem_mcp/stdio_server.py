@@ -69,6 +69,7 @@ class StdioMcpServer:
             {"name": "list_includes", "description": "List include directives and resolved targets", "inputSchema": {"type": "object", "properties": {"relative_path": {"type": "string"}}, "required": ["relative_path"], "additionalProperties": False}},
             {"name": "list_config_summary", "description": "Short summary over config(s)", "inputSchema": {"type": "object", "properties": {"relative_path": {"type": "string"}}, "additionalProperties": False}},
             {"name": "search_config", "description": "Search a text pattern in config files", "inputSchema": {"type": "object", "properties": {"pattern": {"type": "string"}, "relative_path": {"type": "string"}}, "required": ["pattern"], "additionalProperties": False}},
+            {"name": "find_references", "description": "Find likely references with heuristic scoring", "inputSchema": {"type": "object", "properties": {"reference": {"type": "string", "minLength": 1}, "relative_path": {"type": "string"}}, "required": ["reference"], "additionalProperties": False}},
             {"name": "validate_config", "description": "Basic config validation", "inputSchema": {"type": "object", "properties": {"relative_path": {"type": "string"}}, "additionalProperties": False}},
             {"name": "get_device_full", "description": "Find one device repo-wide", "inputSchema": {"type": "object", "properties": {"device_name": {"type": "string"}}, "required": ["device_name"], "additionalProperties": False}},
         ]
@@ -145,6 +146,8 @@ class StdioMcpServer:
             payload = self.backend.list_config_summary(arguments.get("relative_path"))
         elif tool_name == "search_config":
             payload = self.backend.search_config(arguments["pattern"], arguments.get("relative_path"))
+        elif tool_name == "find_references":
+            payload = self.backend.find_references(arguments["reference"], arguments.get("relative_path"))
         elif tool_name == "validate_config":
             payload = self.backend.validate_config(arguments.get("relative_path"))
         elif tool_name == "get_device_full":
