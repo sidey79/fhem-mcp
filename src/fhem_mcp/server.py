@@ -209,6 +209,23 @@ class FhemMcpServer:
         files = sorted(self.config_root.glob("**/*.cfg"))
         return [str(path.relative_to(self.config_root)) for path in files]
 
+    def _safe_resolve_cfg_files(self) -> tuple[list[Path], list[dict[str, object]]]:
+        resolved_files: list[Path] = []
+        errors: list[dict[str, object]] = []
+        for rel in self.list_config_files():
+            try:
+                path = self._resolve_in_root(rel)
+                resolved_files.append(path)
+            except (ValueError, OSError, RuntimeError) as exc:
+                errors.append(
+                    {
+                        "type": "unreadable_config_file",
+                        "file": rel,
+                        "message": str(exc),
+                    }
+                )
+        return resolved_files, errors
+
     def read_config_file(self, relative_path: str) -> str:
         file_path = self._resolve_in_root(relative_path)
         self._ensure_cfg_file(file_path)
@@ -403,14 +420,15 @@ class FhemMcpServer:
         return matches
     def validate_config(self, relative_path: str | None = None) -> dict[str, list[dict[str, object]]]:
         files: list[Path]
+        errors: list[dict[str, object]] = []
         if relative_path is None:
-            files = [self._resolve_in_root(p) for p in self.list_config_files()]
+            files, resolve_errors = self._safe_resolve_cfg_files()
+            errors.extend(resolve_errors)
         else:
             file_path = self._resolve_in_root(relative_path)
             self._ensure_cfg_file(file_path)
             files = self._collect_cfg_files_recursive(file_path)
 
-        errors: list[dict[str, object]] = []
         seen_devices: dict[str, str] = {}
 
         for path in files:
@@ -478,13 +496,40 @@ class FhemMcpServer:
         return {"errors": errors}
 
     def get_device_full(self, device_name: str) -> dict[str, object] | None:
-        for rel in self.list_config_files():
-            file_path = self._resolve_in_root(rel)
-            devices = self._collect_devices_recursive(file_path)
+        files, _ = self._safe_resolve_cfg_files()
+        best_device: FhemDevice | None = None
+        merged_attrs: list[FhemAttribute] = []
+        seen_attr_keys: set[tuple[str, str, str, int]] = set()
+
+        for file_path in files:
+            try:
+                devices = self._collect_devices_recursive(file_path)
+            except (ValueError, OSError, RuntimeError):
+                continue
             device = devices.get(device_name)
-            if device is not None:
-                return self._serialize_device(device)
-        return None
+            if device is None:
+                continue
+
+            if best_device is None or len(device.attributes) > len(best_device.attributes):
+                best_device = FhemDevice(
+                    name=device.name,
+                    device_type=device.device_type,
+                    definition_tokens=list(device.definition_tokens),
+                    source=device.source,
+                )
+
+            for attr in device.attributes:
+                key = (attr.name, attr.value, str(attr.source.file_path), attr.source.line_number)
+                if key in seen_attr_keys:
+                    continue
+                seen_attr_keys.add(key)
+                merged_attrs.append(attr)
+
+        if best_device is None:
+            return None
+
+        best_device.attributes = merged_attrs
+        return self._serialize_device(best_device)
 
     @staticmethod
     def _serialize_device(device: FhemDevice) -> dict:

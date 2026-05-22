@@ -271,3 +271,34 @@ def test_validate_config_relative_path_checks_included_files(tmp_path: Path) -> 
     result = server.validate_config("root.cfg")
 
     assert any(err["type"] == "duplicate_device" and err["device"] == "dup" for err in result["errors"])
+
+def test_validate_config_repo_wide_skips_unreadable_cfg_and_continues(tmp_path: Path) -> None:
+    good = tmp_path / "good.cfg"
+    good.write_text("define ok dummy\n", encoding="utf-8")
+
+    loop = tmp_path / "loop.cfg"
+    loop.symlink_to(loop)
+
+    server = FhemMcpServer(config_root=tmp_path)
+    result = server.validate_config()
+
+    # best-effort: unreadable cfg is reported, validation still returns structured result
+    assert "errors" in result
+    assert any(err["type"] == "unreadable_config_file" and err["file"] == "loop.cfg" for err in result["errors"])
+
+
+def test_get_device_full_merges_attributes_across_entry_contexts(tmp_path: Path) -> None:
+    first = tmp_path / "01-root.cfg"
+    second = tmp_path / "02-root.cfg"
+    child = tmp_path / "child.cfg"
+
+    first.write_text("define d dummy\n", encoding="utf-8")
+    second.write_text("include child.cfg\n", encoding="utf-8")
+    child.write_text("define d dummy\nattr d room Kitchen\n", encoding="utf-8")
+
+    server = FhemMcpServer(config_root=tmp_path)
+    full = server.get_device_full("d")
+
+    assert full is not None
+    attr_names = {a["name"] for a in full["attributes"]}
+    assert "room" in attr_names
