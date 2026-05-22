@@ -96,7 +96,12 @@ class FhemMcpServer:
             for event in self._build_parse_events(resolved):
                 if event.event_type == "define":
                     if event.device is not None:
-                        devices[event.device.name] = event.device
+                        devices[event.device.name] = FhemDevice(
+                            name=event.device.name,
+                            device_type=event.device.device_type,
+                            definition_tokens=list(event.device.definition_tokens),
+                            source=event.device.source,
+                        )
                     continue
 
                 if event.event_type == "attr":

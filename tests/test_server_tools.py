@@ -101,3 +101,12 @@ def test_parent_attr_applies_to_device_defined_in_include() -> None:
     assert device is not None
     attrs = {attr["name"]: attr["value"] for attr in device["attributes"]}
     assert attrs["alias"] == "From Parent"
+
+
+def test_no_duplicate_attributes_after_event_replay() -> None:
+    server = FhemMcpServer(config_root=Path("tests/fixtures"))
+
+    lamp = server.get_device("fhem.cfg", "lamp")
+    assert lamp is not None
+    attrs = [a for a in lamp["attributes"] if a["name"] == "alias"]
+    assert len(attrs) == 1

@@ -69,3 +69,20 @@ def test_tools_call_file_error_returns_jsonrpc_error() -> None:
     )
 
     assert responses[0]["error"]["code"] == -32002
+
+
+def test_batch_request_returns_batch_response() -> None:
+    inp = io.StringIO(
+        json.dumps([
+            {"jsonrpc": "2.0", "id": 21, "method": "initialize", "params": {}},
+            {"jsonrpc": "2.0", "id": 22, "method": "tools/list", "params": {}},
+        ])
+        + "\n"
+    )
+    out = io.StringIO()
+
+    StdioMcpServer(config_root=Path("tests/fixtures")).run(inp, out)
+
+    payload = json.loads(out.getvalue().strip())
+    assert isinstance(payload, list)
+    assert {item["id"] for item in payload} == {21, 22}

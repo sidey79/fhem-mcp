@@ -26,11 +26,21 @@ class StdioMcpServer:
             except json.JSONDecodeError:
                 continue
 
-            if "id" not in request:
+            requests = request if isinstance(request, list) else [request]
+            responses: list[dict[str, Any]] = []
+
+            for item in requests:
+                if not isinstance(item, dict):
+                    continue
+                if "id" not in item:
+                    continue
+                responses.append(self._handle_request(item))
+
+            if not responses:
                 continue
 
-            response = self._handle_request(request)
-            outstream.write(json.dumps(response) + "\n")
+            payload = responses if isinstance(request, list) else responses[0]
+            outstream.write(json.dumps(payload) + "\n")
             outstream.flush()
 
     def _handle_request(self, request: dict[str, Any]) -> dict[str, Any]:
