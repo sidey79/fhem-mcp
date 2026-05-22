@@ -108,3 +108,25 @@ def test_invalid_params_type_returns_error() -> None:
     )
 
     assert responses[0]["error"]["code"] == -32602
+
+
+def test_malformed_json_returns_parse_error() -> None:
+    inp = io.StringIO('{"jsonrpc": "2.0", "id": 1, "method": "tools/list"\n')
+    out = io.StringIO()
+
+    StdioMcpServer(config_root=Path("tests/fixtures")).run(inp, out)
+
+    payload = json.loads(out.getvalue().strip())
+    assert payload["id"] is None
+    assert payload["error"]["code"] == -32700
+
+
+def test_empty_batch_returns_invalid_request() -> None:
+    inp = io.StringIO('[]\n')
+    out = io.StringIO()
+
+    StdioMcpServer(config_root=Path("tests/fixtures")).run(inp, out)
+
+    payload = json.loads(out.getvalue().strip())
+    assert payload["id"] is None
+    assert payload["error"]["code"] == -32600

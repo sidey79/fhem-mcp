@@ -24,6 +24,13 @@ class StdioMcpServer:
             try:
                 request = json.loads(raw)
             except json.JSONDecodeError:
+                outstream.write(json.dumps(self._error(None, -32700, "Parse error")) + "\n")
+                outstream.flush()
+                continue
+
+            if isinstance(request, list) and not request:
+                outstream.write(json.dumps(self._error(None, -32600, "Invalid Request")) + "\n")
+                outstream.flush()
                 continue
 
             requests = request if isinstance(request, list) else [request]
