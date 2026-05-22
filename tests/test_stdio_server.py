@@ -22,6 +22,7 @@ def test_initialize_and_list_tools() -> None:
     )
 
     assert responses[0]["id"] == 1
+    assert responses[0]["result"]["protocolVersion"] == "2024-11-05"
     assert responses[0]["result"]["capabilities"] == {"tools": {}}
 
     tools = responses[1]["result"]["tools"]
@@ -162,3 +163,21 @@ def test_batch_malformed_notification_returns_invalid_request() -> None:
     assert payload[0]["id"] is None
     assert payload[0]["error"]["code"] == -32600
     assert payload[1]["id"] == 41
+
+
+def test_initialize_negotiates_requested_supported_protocol_version() -> None:
+    responses = _run_server_lines(
+        [{"jsonrpc": "2.0", "id": 51, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}],
+        config_root=Path("tests/fixtures"),
+    )
+
+    assert responses[0]["result"]["protocolVersion"] == "2024-11-05"
+
+
+def test_initialize_falls_back_for_unsupported_protocol_version() -> None:
+    responses = _run_server_lines(
+        [{"jsonrpc": "2.0", "id": 52, "method": "initialize", "params": {"protocolVersion": "2099-01-01"}}],
+        config_root=Path("tests/fixtures"),
+    )
+
+    assert responses[0]["result"]["protocolVersion"] == "2024-11-05"

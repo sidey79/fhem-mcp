@@ -11,6 +11,7 @@ from .server import FhemMcpServer
 @dataclass
 class StdioMcpServer:
     config_root: Path
+    SUPPORTED_PROTOCOL_VERSIONS = ("2024-11-05",)
 
     def __post_init__(self) -> None:
         self.backend = FhemMcpServer(config_root=self.config_root)
@@ -67,11 +68,16 @@ class StdioMcpServer:
 
         try:
             if method == "initialize":
+                requested_version = params.get("protocolVersion")
+                if requested_version in self.SUPPORTED_PROTOCOL_VERSIONS:
+                    protocol_version = requested_version
+                else:
+                    protocol_version = self.SUPPORTED_PROTOCOL_VERSIONS[0]
                 return {
                     "jsonrpc": "2.0",
                     "id": req_id,
                     "result": {
-                        "protocolVersion": "2024-11-05",
+                        "protocolVersion": protocol_version,
                         "serverInfo": {"name": "fhem-mcp", "version": "0.1.0"},
                         "capabilities": {"tools": {}},
                     },
