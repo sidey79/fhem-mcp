@@ -64,6 +64,24 @@ def test_tools_call_list_groups_with_filter_roundtrip() -> None:
 
     payload = json.loads(responses[0]["result"]["content"][0]["text"])
     assert payload == {"Licht": ["tempSensor"]}
+
+
+def test_tools_call_find_references_roundtrip() -> None:
+    responses = _run_server_lines(
+        [
+            {
+                "jsonrpc": "2.0",
+                "id": 14,
+                "method": "tools/call",
+                "params": {"name": "find_references", "arguments": {"reference": "tempSensor", "relative_path": "fhem.cfg"}},
+            }
+        ],
+        config_root=Path("tests/fixtures"),
+    )
+
+    payload = json.loads(responses[0]["result"]["content"][0]["text"])
+    assert any(item["file"] == "extras.cfg" for item in payload)
+    assert all("score" in item and "confidence" in item for item in payload)
 def test_unknown_method_returns_jsonrpc_error() -> None:
     responses = _run_server_lines(
         [{"jsonrpc": "2.0", "id": 3, "method": "unknown/method", "params": {}}],
