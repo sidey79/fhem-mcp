@@ -86,3 +86,25 @@ def test_batch_request_returns_batch_response() -> None:
     payload = json.loads(out.getvalue().strip())
     assert isinstance(payload, list)
     assert {item["id"] for item in payload} == {21, 22}
+
+
+def test_batch_invalid_item_returns_invalid_request_error() -> None:
+    inp = io.StringIO(json.dumps(["bad", {"jsonrpc": "2.0", "id": 31, "method": "tools/list", "params": {}}]) + "\n")
+    out = io.StringIO()
+
+    StdioMcpServer(config_root=Path("tests/fixtures")).run(inp, out)
+
+    payload = json.loads(out.getvalue().strip())
+    assert isinstance(payload, list)
+    assert payload[0]["error"]["code"] == -32600
+    assert payload[0]["id"] is None
+    assert payload[1]["id"] == 31
+
+
+def test_invalid_params_type_returns_error() -> None:
+    responses = _run_server_lines(
+        [{"jsonrpc": "2.0", "id": 32, "method": "tools/call", "params": []}],
+        config_root=Path("tests/fixtures"),
+    )
+
+    assert responses[0]["error"]["code"] == -32602

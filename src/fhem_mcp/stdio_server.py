@@ -31,6 +31,7 @@ class StdioMcpServer:
 
             for item in requests:
                 if not isinstance(item, dict):
+                    responses.append(self._error(None, -32600, "Invalid Request"))
                     continue
                 if "id" not in item:
                     continue
@@ -47,6 +48,12 @@ class StdioMcpServer:
         req_id = request["id"]
         method = request.get("method")
         params = request.get("params", {})
+
+        if not isinstance(method, str):
+            return self._error(req_id, -32600, "Invalid Request")
+
+        if not isinstance(params, dict):
+            return self._error(req_id, -32602, "Invalid params")
 
         try:
             if method == "initialize":
