@@ -119,6 +119,15 @@ def test_invalid_tool_arguments_type_returns_error() -> None:
     assert responses[0]["error"]["code"] == -32602
 
 
+def test_unknown_tool_name_returns_invalid_params() -> None:
+    responses = _run_server_lines(
+        [{"jsonrpc": "2.0", "id": 34, "method": "tools/call", "params": {"name": "unknown_tool", "arguments": {}}}],
+        config_root=Path("tests/fixtures"),
+    )
+
+    assert responses[0]["error"]["code"] == -32602
+
+
 def test_malformed_json_returns_parse_error() -> None:
     inp = io.StringIO('{"jsonrpc": "2.0", "id": 1, "method": "tools/list"\n')
     out = io.StringIO()

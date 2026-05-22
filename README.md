@@ -101,10 +101,10 @@ Unterstützte MCP-Methoden in Phase 1:
 Nimm als Startkommando:
 
 ```bash
-python -m fhem_mcp --config-root /ABSOLUTER/PFAD/ZU/DEINEN/FHEM/CONFIGS list_config_files
+python -m fhem_mcp --config-root /ABSOLUTER/PFAD/ZU/DEINEN/FHEM/CONFIGS mcp-stdio
 ```
 
-Für echte MCP-Clients wird später typischerweise ein dedizierter MCP-Transport-Startpunkt genutzt (z. B. stdio-Server). Bis dahin kannst du die vorhandenen read-only Funktionen lokal über denselben Python-Einstieg testen.
+Für MCP-Clients muss der laufende stdio-Servermodus (`mcp-stdio`) verwendet werden, damit `initialize`/`tools/*` über eine persistente JSON-RPC-Session funktionieren.
 
 ### 2) Beispiel-Konfiguration für MCP-Clients (JSON)
 
@@ -120,7 +120,7 @@ Viele IDEs/Agent-Hosts verwenden eine MCP-Serverliste ähnlich diesem Muster:
         "fhem_mcp",
         "--config-root",
         "/ABSOLUTER/PFAD/ZU/DEINEN/FHEM/CONFIGS",
-        "list_config_files"
+        "mcp-stdio"
       ]
     }
   }
@@ -136,7 +136,7 @@ Falls dein Agent-Plugin eine MCP-Konfigurationsdatei verlangt, trägst du densel
 Unabhängig von der IDE zuerst lokal testen:
 
 ```bash
-python -m fhem_mcp --config-root /ABSOLUTER/PFAD/ZU/DEINEN/FHEM/CONFIGS list_config_files
+python -m fhem_mcp --config-root /ABSOLUTER/PFAD/ZU/DEINEN/FHEM/CONFIGS mcp-stdio
 python -m fhem_mcp --config-root /ABSOLUTER/PFAD/ZU/DEINEN/FHEM/CONFIGS list_devices fhem.cfg
 ```
 
