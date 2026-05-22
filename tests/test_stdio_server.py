@@ -216,3 +216,19 @@ def test_initialize_falls_back_for_unsupported_protocol_version() -> None:
     )
 
     assert responses[0]["result"]["protocolVersion"] == "2024-11-05"
+
+def test_tools_call_find_references_empty_reference_returns_error() -> None:
+    responses = _run_server_lines(
+        [
+            {
+                "jsonrpc": "2.0",
+                "id": 15,
+                "method": "tools/call",
+                "params": {"name": "find_references", "arguments": {"reference": "   ", "relative_path": "fhem.cfg"}},
+            }
+        ],
+        config_root=Path("tests/fixtures"),
+    )
+
+    assert responses[0]["result"]["isError"] is True
+    assert "must not be empty" in responses[0]["result"]["content"][0]["text"]

@@ -341,3 +341,13 @@ def test_find_references_scores_and_sorts() -> None:
     assert refs[0]["score"] >= refs[-1]["score"]
     assert any(item["confidence"] in {"medium", "high"} for item in refs)
     assert any(item["file"] == "extras.cfg" for item in refs)
+
+def test_find_references_rejects_empty_reference() -> None:
+    server = FhemMcpServer(config_root=Path("tests/fixtures"))
+
+    try:
+        server.find_references("   ", "fhem.cfg")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("Expected ValueError for empty reference")

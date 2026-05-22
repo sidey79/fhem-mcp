@@ -428,6 +428,9 @@ class FhemMcpServer:
         return matches
 
     def find_references(self, reference: str, relative_path: str | None = None) -> list[dict[str, object]]:
+        if not reference.strip():
+            raise ValueError("reference must not be empty")
+
         files: list[Path]
         if relative_path is None:
             files, _ = self._safe_resolve_cfg_files()
