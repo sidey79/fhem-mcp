@@ -302,3 +302,33 @@ def test_get_device_full_merges_attributes_across_entry_contexts(tmp_path: Path)
     assert full is not None
     attr_names = {a["name"] for a in full["attributes"]}
     assert "room" in attr_names
+
+def test_repo_wide_group_room_summary_skip_unreadable_cfg(tmp_path: Path) -> None:
+    good = tmp_path / "good.cfg"
+    good.write_text("define lamp dummy\nattr lamp room Living\nattr lamp group Licht\n", encoding="utf-8")
+
+    loop = tmp_path / "loop.cfg"
+    loop.symlink_to(loop)
+
+    server = FhemMcpServer(config_root=tmp_path)
+
+    groups = server.list_groups()
+    rooms = server.list_rooms()
+    summary = server.list_config_summary()
+
+    assert groups.get("Licht") == ["lamp"]
+    assert rooms.get("Living") == ["lamp"]
+    assert summary["device_count"] == 1
+
+
+def test_search_config_repo_wide_skips_unreadable_cfg(tmp_path: Path) -> None:
+    good = tmp_path / "good.cfg"
+    good.write_text("# IMPORTANT\n", encoding="utf-8")
+
+    loop = tmp_path / "loop.cfg"
+    loop.symlink_to(loop)
+
+    server = FhemMcpServer(config_root=tmp_path)
+    matches = server.search_config("IMPORTANT")
+
+    assert any(item["file"] == "good.cfg" for item in matches)

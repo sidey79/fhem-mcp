@@ -199,9 +199,13 @@ class FhemMcpServer:
             return self._collect_devices_recursive(file_path)
 
         devices: dict[str, FhemDevice] = {}
-        for rel in self.list_config_files():
-            file_path = self._resolve_in_root(rel)
-            for name, dev in self._collect_devices_recursive(file_path).items():
+        files, _ = self._safe_resolve_cfg_files()
+        for file_path in files:
+            try:
+                parsed_devices = self._collect_devices_recursive(file_path)
+            except (ValueError, OSError, RuntimeError):
+                continue
+            for name, dev in parsed_devices.items():
                 devices[name] = dev
         return devices
 
@@ -399,7 +403,7 @@ class FhemMcpServer:
     def search_config(self, pattern: str, relative_path: str | None = None) -> list[dict[str, object]]:
         files: list[Path]
         if relative_path is None:
-            files = [self._resolve_in_root(p) for p in self.list_config_files()]
+            files, _ = self._safe_resolve_cfg_files()
         else:
             file_path = self._resolve_in_root(relative_path)
             self._ensure_cfg_file(file_path)
@@ -407,7 +411,10 @@ class FhemMcpServer:
 
         matches: list[dict[str, object]] = []
         for path in files:
-            text = path.read_text(encoding="utf-8")
+            try:
+                text = path.read_text(encoding="utf-8")
+            except (OSError, RuntimeError):
+                continue
             for idx, line in enumerate(text.splitlines(), start=1):
                 if pattern in line:
                     matches.append(
