@@ -12,24 +12,33 @@ Dieses Repository enthält ein **read-only** Grundgerüst für einen FHEM MCP Se
 - Quellpositions-Tracking (Datei + Zeilennummer)
 - Read-only Tool-Funktionen (kein Write/Apply)
 
-Nicht enthalten in Phase 1:
+Nicht enthalten in Phase 1 (Phase 2+):
 
+- Runtime View Adapter (`jsonlist2`, HTTP/Telnet)
+- State/Readings Runtime-Tools
+- Patch-Proposal/Preview/Validation
 - Produktionsänderungen an FHEM
 - `set/delete/shutdown/rereadcfg`
 - Vollständige FHEM-kompatible Parser-Reimplementierung
 
 ## Implementierte MCP-Server-Funktionen
 
-Aktuell stellt `FhemMcpServer` folgende Methoden bereit:
-
-1. `list_config_files()`
-   - Listet alle `.cfg` Dateien unterhalb des konfigurierten Wurzelpfads.
-2. `read_config_file(relative_path)`
-   - Liest eine konkrete Datei (inkl. Pfad-Escape-Schutz).
-3. `list_devices(relative_path)`
-   - Gibt geparste Geräte (`define`) inkl. Typ und Source-Zeile zurück.
-4. `get_device(relative_path, device_name)`
-   - Gibt ein einzelnes Gerät inkl. Attribute (`attr`) zurück.
+| Methode | Kurzbeschreibung | Beispiel-Output |
+|---|---|---|
+| `list_config_files()` | Listet alle `.cfg`-Dateien unterhalb des Config-Roots. | `["fhem.cfg", "extras.cfg"]` |
+| `read_config_file(relative_path)` | Liest den Rohinhalt einer Config-Datei. | `"define lamp dummy\nattr lamp alias Living Room Lamp"` |
+| `list_devices(relative_path)` | Listet Geräte aus Entry-Config inkl. Includes mit Typ und Source-Position. | `[{"name":"lamp","device_type":"dummy","source_file":".../fhem.cfg","source_line":2}]` |
+| `get_device(relative_path, device_name)` | Liefert ein Gerät mit `define`-Details und allen zugehörigen `attr`-Einträgen. | `{"name":"lamp","device_type":"dummy","attributes":[...]} ` |
+| `list_groups(relative_path?, group_name?)` | Wertet `attr <device> group ...` aus und gruppiert auf Gruppenname. | `{"Licht":["tempSensor"],"Klima":["tempSensor"]}` |
+| `list_rooms(relative_path?)` | Wertet `attr <device> room ...` inkl. Mehrfachräume/Hierarchien aus. | `{"Sensors":["tempSensor"],"system->Datenbank":["tempSensor"]}` |
+| `list_attributes(relative_path, device_name?)` | Gibt Attribute je Gerät oder für ein einzelnes Gerät strukturiert zurück. | `{"tempSensor":[{"name":"room","value":"Sensors,system->Datenbank"}]}` |
+| `find_devices_by_attr(relative_path, attribute, value?)` | Findet Geräte mit bestimmtem Attribut, optional mit exaktem Wert. | `[{"name":"tempSensor","matching_attribute":"genericDeviceType","matching_value":"light"}]` |
+| `find_devices_by_type(relative_path, device_type)` | Findet Geräte eines bestimmten Typs. | `[{"name":"tempSensor","device_type":"MQTT2_DEVICE"}]` |
+| `list_includes(relative_path)` | Zeigt Include-Struktur mit Auflösung und Existenzstatus. | `[{"include_path":"extras.cfg","resolved_path":"extras.cfg","exists":true}]` |
+| `list_config_summary(relative_path?)` | Liefert Kurzüberblick über Geräte, Typen, Raum-/Gruppenzuordnungen und Quellen. | `{"device_count":2,"type_counts":{"MQTT2_DEVICE":1,"dummy":1}}` |
+| `search_config(pattern, relative_path?)` | Sucht Textmuster in Configs (bei Entry-File inkl. Include-Baum). | `[{"file":"extras.cfg","line":2,"text":"attr tempSensor room Sensors,system->Datenbank"}]` |
+| `validate_config(relative_path?)` | Basisprüfung auf doppelte Geräte, kaputte `define/attr` und fehlende Includes. | `{"errors":[{"type":"missing_include","include_path":"missing.cfg"}]}` |
+| `get_device_full(device_name)` | Sucht Gerät repo-weit und liefert vollständige Device-Struktur. | `{"name":"tempSensor","device_type":"MQTT2_DEVICE","attributes":[...]} ` |
 
 ## Parser-Verhalten
 
@@ -48,65 +57,13 @@ source .venv/bin/activate
 pip install -e .[dev]
 ```
 
-## Starten / CLI Nutzung
+## CLI und MCP Zugriff
 
-Es gibt eine kleine CLI für lokale Tests:
+Die vollständige CLI/MCP-Nutzung (inkl. `mcp-stdio`, IDE-Beispiel und Testkommandos) ist hier dokumentiert:
 
-```bash
-# Config-Dateien auflisten
-fhem-mcp --config-root tests/fixtures list_config_files
+- `docs/cli-mcp-access.md`
 
-# Konfigdatei lesen
-fhem-mcp --config-root tests/fixtures read_config_file fhem.cfg
-
-# Geräte aus einer Datei auflisten
-fhem-mcp --config-root tests/fixtures list_devices fhem.cfg
-
-# Gerätedetails lesen
-fhem-mcp --config-root tests/fixtures get_device fhem.cfg lamp
-```
-
-Alternativ über Python-Modul:
-
-```bash
-python -m fhem_mcp --config-root tests/fixtures list_config_files
-```
-
-
-## Echter MCP stdio Entry-Point
-
-Zusätzlich zur CLI gibt es jetzt einen MCP-JSON-RPC Startmodus über stdio:
-
-```bash
-python -m fhem_mcp --config-root /ABSOLUTER/PFAD/ZU/DEINEN/FHEM/CONFIGS mcp-stdio
-```
-
-Dieser Modus ist für IDE/Agent-Hosts gedacht, die MCP-Server per `command` + `args` über stdio starten.
-Unterstützte MCP-Methoden in Phase 1:
-
-- `initialize`
-- `tools/list`
-- `tools/call` für:
-  - `list_config_files`
-  - `read_config_file`
-  - `list_devices`
-  - `get_device`
-
-## MCP-Server in IDE als KI-Agent einbinden
-
-> Hinweis: Dieses Repository enthält aktuell ein Phase‑1 Skeleton mit lokalem CLI. Für die IDE-Integration wird derselbe Startbefehl als MCP-Server-Command hinterlegt.
-
-### 1) Server-Kommando festlegen
-
-Nimm als Startkommando:
-
-```bash
-python -m fhem_mcp --config-root /ABSOLUTER/PFAD/ZU/DEINEN/FHEM/CONFIGS mcp-stdio
-```
-
-Für MCP-Clients muss der laufende stdio-Servermodus (`mcp-stdio`) verwendet werden, damit `initialize`/`tools/*` über eine persistente JSON-RPC-Session funktionieren.
-
-### 2) Beispiel-Konfiguration für MCP-Clients (JSON)
+## Beispiel-Konfiguration für MCP-Clients
 
 Viele IDEs/Agent-Hosts verwenden eine MCP-Serverliste ähnlich diesem Muster:
 
@@ -126,21 +83,6 @@ Viele IDEs/Agent-Hosts verwenden eine MCP-Serverliste ähnlich diesem Muster:
   }
 }
 ```
-
-### 3) Beispiel in VS Code (Pattern)
-
-Falls dein Agent-Plugin eine MCP-Konfigurationsdatei verlangt, trägst du denselben `command` + `args` Block dort ein. Danach IDE/Plugin neu starten und prüfen, ob der Server erreichbar ist.
-
-### 4) Verbindung testen
-
-Unabhängig von der IDE zuerst lokal testen:
-
-```bash
-python -m fhem_mcp --config-root /ABSOLUTER/PFAD/ZU/DEINEN/FHEM/CONFIGS mcp-stdio
-python -m fhem_mcp --config-root /ABSOLUTER/PFAD/ZU/DEINEN/FHEM/CONFIGS list_devices fhem.cfg
-```
-
-Wenn diese Befehle funktionieren, sind Python-Umgebung und Pfade korrekt.
 
 ## Tests ausführen
 
