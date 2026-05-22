@@ -130,9 +130,11 @@ class FhemMcpServer:
 
     def read_config_file(self, relative_path: str) -> str:
         file_path = self._resolve_in_root(relative_path)
+        if file_path.suffix.lower() != ".cfg":
+            raise ValueError("Only .cfg files are allowed")
         return file_path.read_text(encoding="utf-8")
 
-    def list_devices(self, relative_path: str) -> list[dict[str, str]]:
+    def list_devices(self, relative_path: str) -> list[dict[str, object]]:
         file_path = self._resolve_in_root(relative_path)
         devices = self._collect_devices_recursive(file_path)
         return [
@@ -140,7 +142,7 @@ class FhemMcpServer:
                 "name": dev.name,
                 "device_type": dev.device_type,
                 "source_file": str(dev.source.file_path),
-                "source_line": str(dev.source.line_number),
+                "source_line": dev.source.line_number,
             }
             for dev in devices.values()
         ]

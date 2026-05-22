@@ -71,3 +71,4 @@ def test_parser_does_not_continue_comment_lines() -> None:
     result = parser.parse_file(Path("tests/fixtures/comment_continuation.cfg"))
 
     assert "lamp" in result.devices
+    assert result.comments[0].text == "this is a comment with trailing continuation marker \\"

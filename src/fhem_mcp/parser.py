@@ -12,12 +12,19 @@ class IncludeDirective:
     source: SourceLocation
 
 
+@dataclass(frozen=True)
+class CommentLine:
+    text: str
+    source: SourceLocation
+
+
 @dataclass
 class ParseResult:
     devices: dict[str, FhemDevice]
     device_definitions: list[FhemDevice]
     attribute_definitions: list[FhemAttribute]
     includes: list[IncludeDirective]
+    comments: list[CommentLine]
 
 
 class FhemConfigParser:
@@ -28,6 +35,7 @@ class FhemConfigParser:
         device_definitions: list[FhemDevice] = []
         attribute_definitions: list[FhemAttribute] = []
         includes: list[IncludeDirective] = []
+        comments: list[CommentLine] = []
 
         with file_path.open("r", encoding="utf-8") as handle:
             buffered_line = ""
@@ -51,6 +59,7 @@ class FhemConfigParser:
                         device_definitions,
                         attribute_definitions,
                         includes,
+                        comments,
                     )
                     buffered_line = ""
                     buffered_start_line = None
@@ -68,6 +77,7 @@ class FhemConfigParser:
                     device_definitions,
                     attribute_definitions,
                     includes,
+                    comments,
                 )
                 buffered_line = ""
                 buffered_start_line = None
@@ -81,6 +91,7 @@ class FhemConfigParser:
                     device_definitions,
                     attribute_definitions,
                     includes,
+                    comments,
                 )
 
         return ParseResult(
@@ -88,6 +99,7 @@ class FhemConfigParser:
             device_definitions=device_definitions,
             attribute_definitions=attribute_definitions,
             includes=includes,
+            comments=comments,
         )
 
     @staticmethod
@@ -111,9 +123,13 @@ class FhemConfigParser:
         device_definitions: list[FhemDevice],
         attribute_definitions: list[FhemAttribute],
         includes: list[IncludeDirective],
+        comments: list[CommentLine],
     ) -> None:
         stripped = raw_line.strip()
-        if not stripped or stripped.startswith("#"):
+        if not stripped:
+            return
+        if stripped.startswith("#"):
+            comments.append(CommentLine(text=stripped[1:].lstrip(), source=SourceLocation(file_path=file_path, line_number=line_number, raw_line=raw_line)))
             return
         if stripped.startswith("{"):
             return

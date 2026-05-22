@@ -20,6 +20,7 @@ def test_list_devices_and_get_device() -> None:
     devices = server.list_devices("fhem.cfg")
     assert any(device["name"] == "lamp" for device in devices)
     assert any(device["name"] == "tempSensor" for device in devices)
+    assert all(isinstance(device["source_line"], int) for device in devices)
 
     lamp = server.get_device("fhem.cfg", "lamp")
     assert lamp is not None
@@ -36,6 +37,17 @@ def test_read_config_prevents_path_escape() -> None:
         pass
     else:
         raise AssertionError("Expected ValueError for escaped path")
+
+
+def test_read_config_allows_only_cfg_files() -> None:
+    server = FhemMcpServer(config_root=Path("tests/fixtures"))
+
+    try:
+        server.read_config_file("not_config.txt")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("Expected ValueError for non-cfg file")
 
 
 def test_list_devices_prevents_path_escape() -> None:
