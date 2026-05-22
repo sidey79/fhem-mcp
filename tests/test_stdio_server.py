@@ -27,7 +27,7 @@ def test_initialize_and_list_tools() -> None:
 
     tools = responses[1]["result"]["tools"]
     names = {tool["name"] for tool in tools}
-    assert {"list_config_files", "read_config_file", "list_devices", "get_device"}.issubset(names)
+    assert {"list_config_files", "read_config_file", "list_devices", "get_device", "list_groups", "list_rooms", "find_devices_by_attr", "list_config_summary"}.issubset(names)
 
 
 def test_tools_call_roundtrip() -> None:
@@ -47,6 +47,23 @@ def test_tools_call_roundtrip() -> None:
     assert any(device["name"] == "lamp" for device in payload)
 
 
+
+
+def test_tools_call_list_groups_with_filter_roundtrip() -> None:
+    responses = _run_server_lines(
+        [
+            {
+                "jsonrpc": "2.0",
+                "id": 13,
+                "method": "tools/call",
+                "params": {"name": "list_groups", "arguments": {"relative_path": "fhem.cfg", "group_name": "Licht"}},
+            }
+        ],
+        config_root=Path("tests/fixtures"),
+    )
+
+    payload = json.loads(responses[0]["result"]["content"][0]["text"])
+    assert payload == {"Licht": ["tempSensor"]}
 def test_unknown_method_returns_jsonrpc_error() -> None:
     responses = _run_server_lines(
         [{"jsonrpc": "2.0", "id": 3, "method": "unknown/method", "params": {}}],
