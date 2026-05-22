@@ -141,23 +141,29 @@ class FhemConfigParser:
         keyword = parts[0]
         source = SourceLocation(file_path=file_path, line_number=line_number, raw_line=raw_line)
 
-        if keyword == "define" and len(parts) >= 3:
-            name = parts[1]
-            device_type = parts[2]
+        if keyword == "define":
+            name_index = self._skip_leading_flags(parts, 1)
+            if len(parts) < name_index + 2:
+                return
+            name = parts[name_index]
+            device_type = parts[name_index + 1]
             defined_device = FhemDevice(
                 name=name,
                 device_type=device_type,
-                definition_tokens=parts[3:],
+                definition_tokens=parts[name_index + 2 :],
                 source=source,
             )
             devices[name] = defined_device
             device_definitions.append(defined_device)
             return
 
-        if keyword == "attr" and len(parts) >= 4:
-            device_name = parts[1]
-            attr_name = parts[2]
-            value = " ".join(parts[3:])
+        if keyword == "attr":
+            device_index = self._skip_leading_flags(parts, 1)
+            if len(parts) < device_index + 2:
+                return
+            device_name = parts[device_index]
+            attr_name = parts[device_index + 1]
+            value = " ".join(parts[device_index + 2 :])
             attr = FhemAttribute(
                 device_name=device_name,
                 name=attr_name,
@@ -172,3 +178,10 @@ class FhemConfigParser:
 
         if keyword == "include" and len(parts) >= 2:
             includes.append(IncludeDirective(path_token=parts[1], source=source))
+
+    @staticmethod
+    def _skip_leading_flags(parts: list[str], start_index: int) -> int:
+        index = start_index
+        while index < len(parts) and parts[index].startswith("-"):
+            index += 1
+        return index

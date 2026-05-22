@@ -72,3 +72,14 @@ def test_parser_does_not_continue_comment_lines() -> None:
 
     assert "lamp" in result.devices
     assert result.comments[0].text == "this is a comment with trailing continuation marker \\"
+
+
+def test_parser_supports_define_and_attr_flags() -> None:
+    parser = FhemConfigParser()
+    result = parser.parse_file(Path("tests/fixtures/flag_syntax.cfg"))
+
+    lamp = result.devices["lamp"]
+    assert lamp.device_type == "dummy"
+    attr_names = {attr.name: attr.value for attr in result.attribute_definitions}
+    assert attr_names["room"] == "Living Room"
+    assert attr_names["disable"] == ""

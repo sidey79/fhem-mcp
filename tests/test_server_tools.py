@@ -122,3 +122,11 @@ def test_no_duplicate_attributes_after_event_replay() -> None:
     assert lamp is not None
     attrs = [a for a in lamp["attributes"] if a["name"] == "alias"]
     assert len(attrs) == 1
+
+
+def test_repeated_includes_are_reprocessed_in_order() -> None:
+    server = FhemMcpServer(config_root=Path("tests/fixtures"))
+
+    lamp = server.get_device("include_repeat.cfg", "lamp")
+    assert lamp is not None
+    assert lamp["definition_tokens"] == ["CHILD"]

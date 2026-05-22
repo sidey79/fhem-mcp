@@ -84,42 +84,44 @@ class FhemMcpServer:
 
     def _collect_devices_recursive(self, entry_file: Path) -> dict[str, FhemDevice]:
         devices: dict[str, FhemDevice] = {}
-        visited: set[Path] = set()
+        active_stack: set[Path] = set()
 
         def visit(path: Path) -> None:
             resolved = self._resolve_abs_in_root(path)
-            if resolved in visited:
+            if resolved in active_stack:
                 return
-            visited.add(resolved)
-
-            parent_dir = resolved.parent
-            for event in self._build_parse_events(resolved):
-                if event.event_type == "define":
-                    if event.device is not None:
-                        devices[event.device.name] = FhemDevice(
-                            name=event.device.name,
-                            device_type=event.device.device_type,
-                            definition_tokens=list(event.device.definition_tokens),
-                            source=event.device.source,
-                        )
-                    continue
-
-                if event.event_type == "attr":
-                    if event.attribute is None:
+            active_stack.add(resolved)
+            try:
+                parent_dir = resolved.parent
+                for event in self._build_parse_events(resolved):
+                    if event.event_type == "define":
+                        if event.device is not None:
+                            devices[event.device.name] = FhemDevice(
+                                name=event.device.name,
+                                device_type=event.device.device_type,
+                                definition_tokens=list(event.device.definition_tokens),
+                                source=event.device.source,
+                            )
                         continue
-                    target = devices.get(event.attribute.device_name)
-                    if target is not None:
-                        target.attributes.append(event.attribute)
-                    continue
 
-                if event.include is None:
-                    continue
-                try:
-                    include_path = self._resolve_abs_in_root(parent_dir / event.include.path_token)
-                    visit(include_path)
-                except (ValueError, OSError):
-                    # best-effort parsing: unresolved/invalid includes are ignored
-                    continue
+                    if event.event_type == "attr":
+                        if event.attribute is None:
+                            continue
+                        target = devices.get(event.attribute.device_name)
+                        if target is not None:
+                            target.attributes.append(event.attribute)
+                        continue
+
+                    if event.include is None:
+                        continue
+                    try:
+                        include_path = self._resolve_abs_in_root(parent_dir / event.include.path_token)
+                        visit(include_path)
+                    except (ValueError, OSError):
+                        # best-effort parsing: unresolved/invalid includes are ignored
+                        continue
+            finally:
+                active_stack.remove(resolved)
 
         visit(entry_file)
         return devices
