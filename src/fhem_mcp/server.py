@@ -41,6 +41,11 @@ class FhemMcpServer:
             raise ValueError("Path escapes config root") from exc
         return resolved
 
+    @staticmethod
+    def _ensure_cfg_file(path: Path) -> None:
+        if path.suffix.lower() != ".cfg":
+            raise ValueError("Only .cfg files are allowed")
+
     def _build_parse_events(self, resolved_file: Path) -> list[ParseEvent]:
         parsed = self.parser.parse_file(resolved_file)
         events: list[ParseEvent] = []
@@ -132,12 +137,12 @@ class FhemMcpServer:
 
     def read_config_file(self, relative_path: str) -> str:
         file_path = self._resolve_in_root(relative_path)
-        if file_path.suffix.lower() != ".cfg":
-            raise ValueError("Only .cfg files are allowed")
+        self._ensure_cfg_file(file_path)
         return file_path.read_text(encoding="utf-8")
 
     def list_devices(self, relative_path: str) -> list[dict[str, object]]:
         file_path = self._resolve_in_root(relative_path)
+        self._ensure_cfg_file(file_path)
         devices = self._collect_devices_recursive(file_path)
         return [
             {
@@ -151,6 +156,7 @@ class FhemMcpServer:
 
     def get_device(self, relative_path: str, device_name: str) -> dict | None:
         file_path = self._resolve_in_root(relative_path)
+        self._ensure_cfg_file(file_path)
         devices = self._collect_devices_recursive(file_path)
         device = devices.get(device_name)
         if device is None:

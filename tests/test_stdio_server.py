@@ -148,3 +148,16 @@ def test_empty_batch_returns_invalid_request() -> None:
     payload = json.loads(out.getvalue().strip())
     assert payload["id"] is None
     assert payload["error"]["code"] == -32600
+
+
+def test_batch_malformed_notification_returns_invalid_request() -> None:
+    inp = io.StringIO(json.dumps([{"jsonrpc": "2.0"}, {"jsonrpc": "2.0", "id": 41, "method": "tools/list", "params": {}}]) + "\n")
+    out = io.StringIO()
+
+    StdioMcpServer(config_root=Path("tests/fixtures")).run(inp, out)
+
+    payload = json.loads(out.getvalue().strip())
+    assert isinstance(payload, list)
+    assert payload[0]["id"] is None
+    assert payload[0]["error"]["code"] == -32600
+    assert payload[1]["id"] == 41

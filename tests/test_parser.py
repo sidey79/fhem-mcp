@@ -83,3 +83,11 @@ def test_parser_supports_define_and_attr_flags() -> None:
     attr_names = {attr.name: attr.value for attr in result.attribute_definitions}
     assert attr_names["room"] == "Living Room"
     assert attr_names["disable"] == ""
+
+
+def test_parser_treats_double_backslash_line_end_as_continuation() -> None:
+    parser = FhemConfigParser()
+    result = parser.parse_file(Path("tests/fixtures/multiline_double_backslash.cfg"))
+
+    lamp = result.devices["lamp"]
+    assert lamp.definition_tokens == ["token\\", "continued"]

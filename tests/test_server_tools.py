@@ -50,6 +50,28 @@ def test_read_config_allows_only_cfg_files() -> None:
         raise AssertionError("Expected ValueError for non-cfg file")
 
 
+def test_list_devices_allows_only_cfg_files() -> None:
+    server = FhemMcpServer(config_root=Path("tests/fixtures"))
+
+    try:
+        server.list_devices("not_config.txt")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("Expected ValueError for non-cfg file")
+
+
+def test_get_device_allows_only_cfg_files() -> None:
+    server = FhemMcpServer(config_root=Path("tests/fixtures"))
+
+    try:
+        server.get_device("not_config.txt", "lamp")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("Expected ValueError for non-cfg file")
+
+
 def test_list_devices_prevents_path_escape() -> None:
     server = FhemMcpServer(config_root=Path("tests/fixtures"))
 

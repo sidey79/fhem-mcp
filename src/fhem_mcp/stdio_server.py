@@ -40,6 +40,9 @@ class StdioMcpServer:
                 if not isinstance(item, dict):
                     responses.append(self._error(None, -32600, "Invalid Request"))
                     continue
+                if not isinstance(item.get("method"), str):
+                    responses.append(self._error(item.get("id"), -32600, "Invalid Request"))
+                    continue
                 if "id" not in item:
                     continue
                 responses.append(self._handle_request(item))

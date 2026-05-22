@@ -105,9 +105,7 @@ class FhemConfigParser:
     @staticmethod
     def _is_continuation(line: str) -> bool:
         stripped = line.rstrip()
-        if not stripped.endswith("\\"):
-            return False
-        return len(stripped) < 2 or stripped[-2] != "\\"
+        return stripped.endswith("\\")
 
     @staticmethod
     def _strip_continuation_marker(line: str) -> str:
