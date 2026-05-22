@@ -123,6 +123,8 @@ class StdioMcpServer:
                 }
 
             if method == "tools/call":
+                if "arguments" in params and not isinstance(params["arguments"], dict):
+                    return self._error(req_id, -32602, "Invalid params")
                 return {"jsonrpc": "2.0", "id": req_id, "result": self._call_tool(params)}
 
             return self._error(req_id, -32601, f"Method not found: {method}")

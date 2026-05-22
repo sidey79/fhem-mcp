@@ -64,3 +64,10 @@ def test_parser_continuation_with_trailing_spaces() -> None:
     device = result.devices["s1"]
     assert device.definition_tokens == ["value", "continued"]
     assert device.attributes[0].value == "with spaces"
+
+
+def test_parser_does_not_continue_comment_lines() -> None:
+    parser = FhemConfigParser()
+    result = parser.parse_file(Path("tests/fixtures/comment_continuation.cfg"))
+
+    assert "lamp" in result.devices

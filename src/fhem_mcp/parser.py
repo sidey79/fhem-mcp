@@ -42,6 +42,20 @@ class FhemConfigParser:
                     buffered_line = current
                     buffered_start_line = idx
 
+                if buffered_line.lstrip().startswith("#"):
+                    self._parse_line(
+                        file_path,
+                        buffered_start_line if buffered_start_line is not None else idx,
+                        buffered_line,
+                        devices,
+                        device_definitions,
+                        attribute_definitions,
+                        includes,
+                    )
+                    buffered_line = ""
+                    buffered_start_line = None
+                    continue
+
                 if self._is_continuation(buffered_line):
                     buffered_line = self._strip_continuation_marker(buffered_line)
                     continue
