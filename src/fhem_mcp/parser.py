@@ -161,7 +161,8 @@ class FhemConfigParser:
                 return
             device_name = parts[device_index]
             attr_name = parts[device_index + 1]
-            value = " ".join(parts[device_index + 2 :])
+            value_tokens = parts[device_index + 2 :]
+            value = " ".join(value_tokens) if value_tokens else "1"
             attr = FhemAttribute(
                 device_name=device_name,
                 name=attr_name,

@@ -82,7 +82,7 @@ def test_parser_supports_define_and_attr_flags() -> None:
     assert lamp.device_type == "dummy"
     attr_names = {attr.name: attr.value for attr in result.attribute_definitions}
     assert attr_names["room"] == "Living Room"
-    assert attr_names["disable"] == ""
+    assert attr_names["disable"] == "1"
 
 
 def test_parser_treats_double_backslash_line_end_as_continuation() -> None:

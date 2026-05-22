@@ -68,7 +68,8 @@ def test_tools_call_file_error_returns_jsonrpc_error() -> None:
         config_root=Path("tests/fixtures"),
     )
 
-    assert responses[0]["error"]["code"] == -32002
+    assert responses[0]["result"]["isError"] is True
+    assert "missing.cfg" in responses[0]["result"]["content"][0]["text"]
 
 
 def test_batch_request_returns_batch_response() -> None:

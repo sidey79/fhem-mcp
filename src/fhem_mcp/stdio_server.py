@@ -130,7 +130,17 @@ class StdioMcpServer:
                     return self._error(req_id, -32602, "Invalid params")
                 if params.get("name") not in {"list_config_files", "read_config_file", "list_devices", "get_device"}:
                     return self._error(req_id, -32602, "Invalid params")
-                return {"jsonrpc": "2.0", "id": req_id, "result": self._call_tool(params)}
+                try:
+                    return {"jsonrpc": "2.0", "id": req_id, "result": self._call_tool(params)}
+                except (ValueError, OSError) as exc:
+                    return {
+                        "jsonrpc": "2.0",
+                        "id": req_id,
+                        "result": {
+                            "isError": True,
+                            "content": [{"type": "text", "text": str(exc)}],
+                        },
+                    }
 
             return self._error(req_id, -32601, f"Method not found: {method}")
         except ValueError as exc:
