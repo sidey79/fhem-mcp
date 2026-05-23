@@ -95,6 +95,42 @@ Viele IDEs/Agent-Hosts verwenden eine MCP-Serverliste ähnlich diesem Muster:
 }
 ```
 
+## Docker: MCP-Server in Agent einbinden
+
+Image bauen:
+
+```bash
+docker build -t fhem-mcp:latest .
+```
+
+Dann den MCP-Server im Agent-Host über `docker run` starten. Wichtig ist `-i` (stdio offen lassen) und ein Read-only-Mount auf den FHEM-Config-Ordner:
+
+```json
+{
+  "mcpServers": {
+    "fhem": {
+      "command": "docker",
+      "args": [
+        "run",
+        "--rm",
+        "-i",
+        "-v",
+        "/ABSOLUTER/PFAD/ZU/DEINEN/FHEM/CONFIGS:/config:ro",
+        "fhem-mcp:latest",
+        "--config-root",
+        "/config",
+        "mcp-stdio"
+      ]
+    }
+  }
+}
+```
+
+Hinweise:
+- Der Host-Pfad muss absolut sein.
+- `:ro` hält den Zugriff im Container read-only.
+- Falls dein Agent in einem Container läuft, muss der Mount-Pfad aus Sicht dieses Agent-Containers gültig sein.
+
 ## Tests ausführen
 
 ```bash
