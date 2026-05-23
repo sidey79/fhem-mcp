@@ -1,37 +1,42 @@
 from __future__ import annotations
 
 import json
+import os
+from datetime import datetime
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, TextIO
+from typing import Any, BinaryIO, TextIO
 
+from .mcp_schema import TOOL_DEFINITIONS, build_tool_list
 from .server import FhemMcpServer
 
 
 @dataclass
 class StdioMcpServer:
     config_root: Path
-    SUPPORTED_PROTOCOL_VERSIONS = ("2024-11-05",)
+    SUPPORTED_PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
+    DEFAULT_PROTOCOL_VERSION = "2024-11-05"
 
     def __post_init__(self) -> None:
         self.backend = FhemMcpServer(config_root=self.config_root)
 
-    def run(self, instream: TextIO, outstream: TextIO) -> None:
-        for raw in instream:
-            raw = raw.strip()
-            if not raw:
+    def run(self, instream: BinaryIO | TextIO, outstream: BinaryIO | TextIO) -> None:
+        while True:
+            raw = self._read_message(instream)
+            self._dbg(f"read raw: {raw[:200] if isinstance(raw, str) else raw}")
+            if raw is None:
+                return
+            if not raw.strip():
                 continue
 
             try:
                 request = json.loads(raw)
             except json.JSONDecodeError:
-                outstream.write(json.dumps(self._error(None, -32700, "Parse error")) + "\n")
-                outstream.flush()
+                self._write_message(outstream, self._error(None, -32700, "Parse error"))
                 continue
 
             if isinstance(request, list) and not request:
-                outstream.write(json.dumps(self._error(None, -32600, "Invalid Request")) + "\n")
-                outstream.flush()
+                self._write_message(outstream, self._error(None, -32600, "Invalid Request"))
                 continue
 
             requests = request if isinstance(request, list) else [request]
@@ -52,26 +57,91 @@ class StdioMcpServer:
                 continue
 
             payload = responses if isinstance(request, list) else responses[0]
-            outstream.write(json.dumps(payload) + "\n")
-            outstream.flush()
+            self._dbg(f"write payload: {json.dumps(payload, ensure_ascii=False)[:300]}")
+            self._write_message(outstream, payload)
+
+
+
+    @staticmethod
+    def _dbg(message: str) -> None:
+        if os.getenv("FHEM_MCP_DEBUG", "").lower() not in ("1", "true", "yes", "on"):
+            return
+        try:
+            with open("/tmp/fhem-mcp-handshake.log", "a", encoding="utf-8") as fh:
+                fh.write(f"{datetime.now().isoformat()} {message}\n")
+        except Exception:
+            pass
+
+    @staticmethod
+    def _write_message(outstream: BinaryIO | TextIO, payload: dict[str, Any] | list[dict[str, Any]]) -> None:
+        # Codex stdio uses newline-delimited JSON-RPC messages.
+        text = json.dumps(payload, ensure_ascii=False) + "\n"
+        try:
+            outstream.write(text.encode("utf-8"))
+        except TypeError:
+            outstream.write(text)
+        outstream.flush()
+
+    @staticmethod
+    def _read_message(instream: BinaryIO | TextIO) -> str | None:
+        first = instream.readline()
+        if first in (b"", ""):
+            return None
+
+        if isinstance(first, str):
+            if first.lstrip()[:1] in ("{", "["):
+                return first
+            headers: dict[str, str] = {}
+            line = first
+            while True:
+                if line in ("\r\n", "\n", ""):
+                    break
+                key, sep, value = line.partition(":")
+                if sep:
+                    headers[key.strip().lower()] = value.strip()
+                line = instream.readline()
+            length_raw = headers.get("content-length")
+            if length_raw is None:
+                return ""
+            try:
+                content_length = int(length_raw)
+            except ValueError:
+                return ""
+            body = instream.read(content_length)
+            if len(body) != content_length:
+                return None
+            return body
+
+        if first.lstrip()[:1] in (b"{", b"["):
+            return first.decode("utf-8", errors="replace")
+
+        headers: dict[str, str] = {}
+        line = first
+        while True:
+            if line in (b"\r\n", b"\n", b""):
+                break
+            key, sep, value = line.partition(b":")
+            if sep:
+                headers[key.decode("ascii", errors="ignore").strip().lower()] = value.decode(
+                    "ascii", errors="ignore"
+                ).strip()
+            line = instream.readline()
+
+        length_raw = headers.get("content-length")
+        if length_raw is None:
+            return ""
+        try:
+            content_length = int(length_raw)
+        except ValueError:
+            return ""
+
+        body = instream.read(content_length)
+        if len(body) != content_length:
+            return None
+        return body.decode("utf-8", errors="replace")
 
     def _tools(self) -> list[dict[str, Any]]:
-        return [
-            {"name": "list_config_files", "description": "List all .cfg files under config root", "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False}},
-            {"name": "read_config_file", "description": "Read one config file", "inputSchema": {"type": "object", "properties": {"relative_path": {"type": "string"}}, "required": ["relative_path"], "additionalProperties": False}},
-            {"name": "list_devices", "description": "List parsed devices from one config file", "inputSchema": {"type": "object", "properties": {"relative_path": {"type": "string"}}, "required": ["relative_path"], "additionalProperties": False}},
-            {"name": "get_device", "description": "Get one parsed device from one config file", "inputSchema": {"type": "object", "properties": {"relative_path": {"type": "string"}, "device_name": {"type": "string"}}, "required": ["relative_path", "device_name"], "additionalProperties": False}},
-            {"name": "list_groups", "description": "List group attribute values to devices", "inputSchema": {"type": "object", "properties": {"relative_path": {"type": "string"}, "group_name": {"type": "string"}}, "additionalProperties": False}},
-            {"name": "list_rooms", "description": "List room attribute values to devices", "inputSchema": {"type": "object", "properties": {"relative_path": {"type": "string"}}, "additionalProperties": False}},
-            {"name": "list_attributes", "description": "List attributes for one or all devices", "inputSchema": {"type": "object", "properties": {"relative_path": {"type": "string"}, "device_name": {"type": "string"}}, "required": ["relative_path"], "additionalProperties": False}},
-            {"name": "find_devices_by_attr", "description": "Find devices by attribute/value", "inputSchema": {"type": "object", "properties": {"relative_path": {"type": "string"}, "attribute": {"type": "string"}, "value": {"type": "string"}}, "required": ["relative_path", "attribute"], "additionalProperties": False}},
-            {"name": "find_devices_by_type", "description": "Find devices by device type", "inputSchema": {"type": "object", "properties": {"relative_path": {"type": "string"}, "device_type": {"type": "string"}}, "required": ["relative_path", "device_type"], "additionalProperties": False}},
-            {"name": "list_includes", "description": "List include directives and resolved targets", "inputSchema": {"type": "object", "properties": {"relative_path": {"type": "string"}}, "required": ["relative_path"], "additionalProperties": False}},
-            {"name": "list_config_summary", "description": "Short summary over config(s)", "inputSchema": {"type": "object", "properties": {"relative_path": {"type": "string"}}, "additionalProperties": False}},
-            {"name": "search_config", "description": "Search a text pattern in config files", "inputSchema": {"type": "object", "properties": {"pattern": {"type": "string"}, "relative_path": {"type": "string"}}, "required": ["pattern"], "additionalProperties": False}},
-            {"name": "validate_config", "description": "Basic config validation", "inputSchema": {"type": "object", "properties": {"relative_path": {"type": "string"}}, "additionalProperties": False}},
-            {"name": "get_device_full", "description": "Find one device repo-wide", "inputSchema": {"type": "object", "properties": {"device_name": {"type": "string"}}, "required": ["device_name"], "additionalProperties": False}},
-        ]
+        return build_tool_list()
 
     def _handle_request(self, request: dict[str, Any]) -> dict[str, Any]:
         req_id = request["id"]
@@ -87,11 +157,23 @@ class StdioMcpServer:
         try:
             if method == "initialize":
                 requested_version = params.get("protocolVersion")
-                if requested_version in self.SUPPORTED_PROTOCOL_VERSIONS:
+                if (
+                    isinstance(requested_version, str)
+                    and requested_version in self.SUPPORTED_PROTOCOL_VERSIONS
+                ):
                     protocol_version = requested_version
                 else:
                     protocol_version = self.SUPPORTED_PROTOCOL_VERSIONS[0]
-                return {"jsonrpc": "2.0", "id": req_id, "result": {"protocolVersion": protocol_version, "serverInfo": {"name": "fhem-mcp", "version": "0.1.0"}, "capabilities": {"tools": {}}}}
+                return {
+                    "jsonrpc": "2.0",
+                    "id": req_id,
+                    "result": {
+                        "protocolVersion": protocol_version,
+                        "serverInfo": {"name": "fhem-mcp", "title": "FHEM Config MCP", "version": "0.1.0"},
+                        "instructions": "Read-only FHEM config server. Use tools to inspect config files, devices, attributes, and includes.",
+                        "capabilities": {"tools": {}},
+                    },
+                }
 
             if method == "tools/list":
                 return {"jsonrpc": "2.0", "id": req_id, "result": {"tools": self._tools()}}
@@ -99,13 +181,22 @@ class StdioMcpServer:
             if method == "tools/call":
                 if "arguments" in params and not isinstance(params["arguments"], dict):
                     return self._error(req_id, -32602, "Invalid params")
-                valid_tools = {tool["name"] for tool in self._tools()}
-                if params.get("name") not in valid_tools:
+                tool_name = params.get("name")
+                if tool_name not in TOOL_DEFINITIONS:
+                    return self._error(req_id, -32602, "Invalid params")
+                _, model = TOOL_DEFINITIONS[tool_name]
+                try:
+                    validated = model.model_validate(params.get("arguments", {})).model_dump(exclude_none=False)
+                except Exception:
                     return self._error(req_id, -32602, "Invalid params")
                 try:
-                    return {"jsonrpc": "2.0", "id": req_id, "result": self._call_tool(params)}
+                    return {"jsonrpc": "2.0", "id": req_id, "result": self._call_tool(tool_name, validated)}
                 except (ValueError, OSError) as exc:
-                    return {"jsonrpc": "2.0", "id": req_id, "result": {"isError": True, "content": [{"type": "text", "text": str(exc)}]}}
+                    return {
+                        "jsonrpc": "2.0",
+                        "id": req_id,
+                        "result": {"isError": True, "content": [{"type": "text", "text": str(exc)}]},
+                    }
 
             return self._error(req_id, -32601, f"Method not found: {method}")
         except ValueError as exc:
@@ -117,10 +208,7 @@ class StdioMcpServer:
         except Exception as exc:
             return self._error(req_id, -32000, f"Unhandled server error: {exc}")
 
-    def _call_tool(self, params: dict[str, Any]) -> dict[str, Any]:
-        tool_name = params["name"]
-        arguments = params.get("arguments", {})
-
+    def _call_tool(self, tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         if tool_name == "list_config_files":
             payload = self.backend.list_config_files()
         elif tool_name == "read_config_file":

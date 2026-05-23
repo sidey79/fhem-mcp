@@ -11,6 +11,7 @@ Dieses Repository enthält ein **read-only** Grundgerüst für einen FHEM MCP Se
   - `include`
 - Quellpositions-Tracking (Datei + Zeilennummer)
 - Read-only Tool-Funktionen (kein Write/Apply)
+- MCP Tool-Schemas sind über Pydantic-Modelle typisiert und werden als JSON-Schema für MCP generiert
 
 Nicht enthalten in Phase 1 (Phase 2+):
 
@@ -62,6 +63,16 @@ pip install -e .[dev]
 Die vollständige CLI/MCP-Nutzung (inkl. `mcp-stdio`, IDE-Beispiel und Testkommandos) ist hier dokumentiert:
 
 - `docs/cli-mcp-access.md`
+
+## Debug-Logging (optional)
+
+Für MCP-Handshake-Debugging kann Logging über eine Umgebungsvariable aktiviert werden:
+
+```bash
+FHEM_MCP_DEBUG=1 python -m fhem_mcp --config-root /ABSOLUTER/PFAD/ZU/CONFIG mcp-stdio
+```
+
+Bei aktivem Schalter schreibt der Server Debug-Ausgaben nach `/tmp/fhem-mcp-handshake.log`.
 
 ## Beispiel-Konfiguration für MCP-Clients
 
