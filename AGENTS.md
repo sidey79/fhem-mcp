@@ -31,3 +31,22 @@ Preferred stack:
 - pytest
 - typed data models
 - clear adapter interfaces
+
+Versioning policy:
+- Use Semantic Versioning (SemVer): `MAJOR.MINOR.PATCH`.
+- Every feature branch must include a version bump before merge.
+- The version source of truth is `pyproject.toml` in `[project].version`.
+
+SemVer bump rules:
+- `PATCH`: bug fixes, refactoring without behavior change, docs-only runtime-neutral updates.
+- `MINOR`: backward-compatible new features, new MCP tools, additive APIs.
+- `MAJOR`: breaking changes in APIs, tool contracts, behavior, or required configuration.
+
+Branch and PR rules:
+- A PR from a feature branch is not complete unless the version is increased according to scope.
+- If uncertain between two bump levels, choose the higher one.
+- Do not reuse an already released version.
+
+Release tagging rules:
+- Docker image tags must align with `pyproject.toml` version.
+- `latest` is mutable and only updated from `main` after successful CI.
