@@ -163,7 +163,7 @@ class StdioMcpServer:
                 ):
                     protocol_version = requested_version
                 else:
-                    protocol_version = self.DEFAULT_PROTOCOL_VERSION
+                    protocol_version = self.SUPPORTED_PROTOCOL_VERSIONS[0]
                 return {
                     "jsonrpc": "2.0",
                     "id": req_id,

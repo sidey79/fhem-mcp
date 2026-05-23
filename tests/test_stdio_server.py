@@ -22,7 +22,7 @@ def test_initialize_and_list_tools() -> None:
     )
 
     assert responses[0]["id"] == 1
-    assert responses[0]["result"]["protocolVersion"] == "2024-11-05"
+    assert responses[0]["result"]["protocolVersion"] == "2025-06-18"
     assert responses[0]["result"]["capabilities"] == {"tools": {}}
 
     tools = responses[1]["result"]["tools"]
@@ -197,4 +197,4 @@ def test_initialize_falls_back_for_unsupported_protocol_version() -> None:
         config_root=Path("tests/fixtures"),
     )
 
-    assert responses[0]["result"]["protocolVersion"] == "2024-11-05"
+    assert responses[0]["result"]["protocolVersion"] == "2025-06-18"
