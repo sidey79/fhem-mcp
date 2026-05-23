@@ -1,0 +1,44 @@
+name: fhem-mcp
+display_name: FHEM MCP Server
+version: 0.1.2
+description: >-
+  Read-only MCP server for FHEM configs (Phase 1), including best-effort parsing of
+  define/attr/include with source mapping.
+license: GPL-3.0-or-later
+homepage: https://github.com/fhem/fhem-mcp
+repository: https://github.com/fhem/fhem-mcp
+runtime: stdio
+preferred_variant: docker
+variants:
+  docker:
+    preferred: true
+    command: docker
+    args:
+      - run
+      - --rm
+      - -i
+      - -v
+      - /ABSOLUTER/PFAD/ZU/FHEM/CONFIG:/config:ro
+      - ghcr.io/sidey79/fhem-mcp:0.1.2
+      - --config-root
+      - /config
+      - mcp-stdio
+    env: {}
+  python:
+    preferred: false
+    command: python
+    args:
+      - -m
+      - fhem_mcp
+      - --config-root
+      - /ABSOLUTER/PFAD/ZU/FHEM/CONFIG
+      - mcp-stdio
+    env: {}
+capabilities:
+  - tools
+transport:
+  type: stdio
+safety:
+  phase: 1
+  read_only: true
+  no_production_apply: true
