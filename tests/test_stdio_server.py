@@ -27,7 +27,7 @@ def test_initialize_and_list_tools() -> None:
 
     tools = responses[1]["result"]["tools"]
     names = {tool["name"] for tool in tools}
-    assert {"list_config_files", "read_config_file", "list_devices", "get_device", "list_groups", "list_rooms", "find_devices_by_attr", "list_config_summary"}.issubset(names)
+    assert {"list_config_files", "read_config_file", "read_live_config_http", "list_devices", "get_device", "list_groups", "list_rooms", "find_devices_by_attr", "list_config_summary"}.issubset(names)
 
 
 def test_tools_call_roundtrip() -> None:

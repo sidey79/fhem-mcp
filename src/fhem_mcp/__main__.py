@@ -22,6 +22,14 @@ def _build_parser() -> argparse.ArgumentParser:
     read_cmd = sub.add_parser("read_config_file", help="Read one config file")
     read_cmd.add_argument("relative_path", help="Path relative to config-root")
 
+    live_read = sub.add_parser("read_live_config_http", help="Read one live config via FHEM HTTP cmd=cat")
+    live_read.add_argument("base_url", help="FHEM web endpoint, e.g. http://127.0.0.1:8083/fhem")
+    live_read.add_argument("config_path", nargs="?", default="fhem.cfg", help="Config path on live system")
+    live_read.add_argument("--fwcsrf", default=None, help="Optional FHEM CSRF token (otherwise fetched dynamically)")
+    live_read.add_argument("--timeout-seconds", type=float, default=5.0, help="HTTP timeout in seconds")
+    live_read.add_argument("--username", default=None, help="Optional basic auth username")
+    live_read.add_argument("--password", default=None, help="Optional basic auth password")
+
     list_dev = sub.add_parser("list_devices", help="List parsed devices from one config file")
     list_dev.add_argument("relative_path", help="Path relative to config-root")
 
@@ -84,6 +92,8 @@ def main() -> None:
         result = server.read_config_file(args.relative_path)
     elif args.command == "list_devices":
         result = server.list_devices(args.relative_path)
+    elif args.command == "read_live_config_http":
+        result = server.read_live_config_http(args.base_url, args.config_path, args.fwcsrf, args.timeout_seconds, args.username, args.password)
     elif args.command == "get_device":
         result = server.get_device(args.relative_path, args.device_name)
     elif args.command == "list_groups":

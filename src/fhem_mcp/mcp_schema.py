@@ -60,9 +60,19 @@ class GetDeviceFullArgs(StrictModel):
     device_name: str
 
 
+class ReadLiveConfigHttpArgs(StrictModel):
+    base_url: str
+    config_path: str = "fhem.cfg"
+    fwcsrf: str | None = None
+    timeout_seconds: float = 5.0
+    username: str | None = None
+    password: str | None = None
+
+
 TOOL_DEFINITIONS: dict[str, tuple[str, type[BaseModel]]] = {
     "list_config_files": ("List all .cfg files under config root", EmptyArgs),
     "read_config_file": ("Read one config file", RelativePathArgs),
+    "read_live_config_http": ("Read one live FHEM config via HTTP cmd=cat", ReadLiveConfigHttpArgs),
     "list_devices": ("List parsed devices from one config file", RelativePathArgs),
     "get_device": ("Get one parsed device from one config file", DeviceArgs),
     "list_groups": ("List group attribute values to devices", ListGroupsArgs),

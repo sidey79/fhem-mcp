@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from base64 import b64encode
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import ParseResult, quote_plus, urlparse
+from urllib.request import Request, urlopen
 from typing import Literal
 
 from .models import FhemAttribute, FhemDevice
@@ -236,6 +239,80 @@ class FhemMcpServer:
         file_path = self._resolve_in_root(relative_path)
         self._ensure_cfg_file(file_path)
         return file_path.read_text(encoding="utf-8")
+
+    @staticmethod
+    def _validate_live_base_url(base_url: str) -> ParseResult:
+        parsed = urlparse(base_url)
+        if parsed.scheme not in {"http", "https"}:
+            raise ValueError("base_url must use http or https")
+        if not parsed.netloc:
+            raise ValueError("base_url must include host")
+        return parsed
+
+    @staticmethod
+    def _validate_live_cfg_token(config_path: str) -> str:
+        candidate = config_path.strip()
+        if not candidate:
+            raise ValueError("config_path must not be empty")
+        if not candidate.endswith(".cfg"):
+            raise ValueError("config_path must end with .cfg")
+        banned = {"\n", "\r", "\t", ";", "|", "&", "`", "$", ">", "<"}
+        if any(ch in candidate for ch in banned):
+            raise ValueError("config_path contains unsupported characters")
+        return candidate
+
+    def _fetch_fwcsrf_http(
+        self,
+        base_url: str,
+        timeout_seconds: float,
+        username: str | None,
+        password: str | None,
+    ) -> str:
+        separator = "&" if "?" in base_url else "?"
+        token_url = f"{base_url}{separator}XHR=1"
+        request = Request(token_url, method="GET")
+        if username is not None and password is not None:
+            auth = b64encode(f"{username}:{password}".encode("utf-8")).decode("ascii")
+            request.add_header("Authorization", f"Basic {auth}")
+
+        with urlopen(request, timeout=timeout_seconds) as response:
+            token = response.headers.get("X-FHEM-csrfToken")
+
+        if token is None or not token.strip():
+            raise ValueError("Unable to fetch fwcsrf token from FHEM response headers")
+        return token.strip()
+
+    def read_live_config_http(
+        self,
+        base_url: str,
+        config_path: str = "fhem.cfg",
+        fwcsrf: str | None = None,
+        timeout_seconds: float = 5.0,
+        username: str | None = None,
+        password: str | None = None,
+    ) -> str:
+        self._validate_live_base_url(base_url)
+        target_cfg = self._validate_live_cfg_token(config_path)
+        if timeout_seconds <= 0:
+            raise ValueError("timeout_seconds must be > 0")
+
+        if (username is None) != (password is None):
+            raise ValueError("username and password must be provided together")
+
+        token = fwcsrf or self._fetch_fwcsrf_http(base_url, timeout_seconds, username, password)
+
+        cmd = f"cat {target_cfg}"
+        query_parts = [f"cmd={quote_plus(cmd)}", "XHR=1", f"fwcsrf={quote_plus(token)}"]
+        separator = "&" if "?" in base_url else "?"
+        request_url = f"{base_url}{separator}{'&'.join(query_parts)}"
+
+        request = Request(request_url, method="GET")
+        if username is not None and password is not None:
+            auth = b64encode(f"{username}:{password}".encode("utf-8")).decode("ascii")
+            request.add_header("Authorization", f"Basic {auth}")
+        with urlopen(request, timeout=timeout_seconds) as response:
+            payload = response.read()
+        return payload.decode("utf-8", errors="replace")
 
     def list_devices(self, relative_path: str) -> list[dict[str, object]]:
         file_path = self._resolve_in_root(relative_path)

@@ -15,7 +15,7 @@ Dieses Repository enthält ein **read-only** Grundgerüst für einen FHEM MCP Se
 
 Nicht enthalten in Phase 1 (Phase 2+):
 
-- Runtime View Adapter (`jsonlist2`, HTTP/Telnet)
+- Vollständiger Runtime View Adapter (`jsonlist2`, Telnet)
 - State/Readings Runtime-Tools
 - Patch-Proposal/Preview/Validation
 - Produktionsänderungen an FHEM
@@ -28,6 +28,7 @@ Nicht enthalten in Phase 1 (Phase 2+):
 |---|---|---|
 | `list_config_files()` | Listet alle `.cfg`-Dateien unterhalb des Config-Roots. | `["fhem.cfg", "extras.cfg"]` |
 | `read_config_file(relative_path)` | Liest den Rohinhalt einer Config-Datei. | `"define lamp dummy\nattr lamp alias Living Room Lamp"` |
+| `read_live_config_http(base_url, config_path?, fwcsrf?, timeout_seconds?, username?, password?)` | Liest eine Live-Config read-only per FHEM-HTTP (`cmd=cat ...`), holt `fwcsrf` dynamisch (oder nutzt Override) und unterstützt optional Basic Auth. | `"define lamp dummy\n..."` |
 | `list_devices(relative_path)` | Listet Geräte aus Entry-Config inkl. Includes mit Typ und Source-Position. | `[{"name":"lamp","device_type":"dummy","source_file":".../fhem.cfg","source_line":2}]` |
 | `get_device(relative_path, device_name)` | Liefert ein Gerät mit `define`-Details und allen zugehörigen `attr`-Einträgen. | `{"name":"lamp","device_type":"dummy","attributes":[...]} ` |
 | `list_groups(relative_path?, group_name?)` | Wertet `attr <device> group ...` aus und gruppiert auf Gruppenname. | `{"Licht":["tempSensor"],"Klima":["tempSensor"]}` |

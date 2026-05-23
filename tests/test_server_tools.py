@@ -1,4 +1,5 @@
 from pathlib import Path
+from unittest.mock import patch
 
 from fhem_mcp.server import FhemMcpServer
 
@@ -332,3 +333,109 @@ def test_search_config_repo_wide_skips_unreadable_cfg(tmp_path: Path) -> None:
     matches = server.search_config("IMPORTANT")
 
     assert any(item["file"] == "good.cfg" for item in matches)
+
+
+def test_read_live_config_http_builds_expected_request() -> None:
+    server = FhemMcpServer(config_root=Path("tests/fixtures"))
+
+    class _Resp:
+        def __init__(self, body: bytes, headers: dict[str, str] | None = None) -> None:
+            self._body = body
+            self.headers = headers or {}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return self._body
+
+    responses = [
+        _Resp(b"", {"X-FHEM-csrfToken": "csrf_123"}),
+        _Resp(b"define x dummy 1\n"),
+    ]
+
+    with patch("fhem_mcp.server.urlopen", side_effect=responses) as mocked_urlopen:
+        payload = server.read_live_config_http(
+            "http://127.0.0.1:8083/fhem",
+            "fhem.cfg",
+            timeout_seconds=3.5,
+            username="alice",
+            password="secret",
+        )
+
+    assert payload == "define x dummy 1\n"
+    token_request = mocked_urlopen.call_args_list[0].args[0]
+    command_request = mocked_urlopen.call_args_list[1].args[0]
+    assert mocked_urlopen.call_args_list[0].kwargs["timeout"] == 3.5
+    assert mocked_urlopen.call_args_list[1].kwargs["timeout"] == 3.5
+    assert token_request.full_url.endswith("?XHR=1")
+    assert command_request.full_url.startswith("http://127.0.0.1:8083/fhem?")
+    assert "cmd=cat+fhem.cfg" in command_request.full_url
+    assert "fwcsrf=csrf_123" in command_request.full_url
+    assert token_request.get_header("Authorization").startswith("Basic ")
+    assert command_request.get_header("Authorization").startswith("Basic ")
+
+
+def test_read_live_config_http_rejects_invalid_inputs() -> None:
+    server = FhemMcpServer(config_root=Path("tests/fixtures"))
+
+    for base_url in ("ftp://127.0.0.1/fhem", "http:///fhem"):
+        try:
+            server.read_live_config_http(base_url=base_url)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("Expected ValueError for invalid base_url")
+
+    for config_path in ("", "fhem.conf", "fhem.cfg;shutdown"):
+        try:
+            server.read_live_config_http(base_url="http://127.0.0.1:8083/fhem", config_path=config_path)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("Expected ValueError for invalid config_path")
+
+    try:
+        server.read_live_config_http(base_url="http://127.0.0.1:8083/fhem", timeout_seconds=0)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("Expected ValueError for invalid timeout")
+
+
+def test_read_live_config_http_requires_username_and_password_together() -> None:
+    server = FhemMcpServer(config_root=Path("tests/fixtures"))
+
+    try:
+        server.read_live_config_http(base_url="http://127.0.0.1:8083/fhem", username="alice")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("Expected ValueError for incomplete basic auth")
+
+
+def test_read_live_config_http_raises_when_fwcsrf_missing_in_header() -> None:
+    server = FhemMcpServer(config_root=Path("tests/fixtures"))
+
+    class _Resp:
+        headers: dict[str, str] = {}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return b""
+
+    with patch("fhem_mcp.server.urlopen", return_value=_Resp()):
+        try:
+            server.read_live_config_http(base_url="http://127.0.0.1:8083/fhem")
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("Expected ValueError for missing fwcsrf response header")
