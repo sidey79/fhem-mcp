@@ -15,6 +15,7 @@ from .server import FhemMcpServer
 class StdioMcpServer:
     config_root: Path
     SUPPORTED_PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
+    DEFAULT_PROTOCOL_VERSION = "2024-11-05"
 
     def __post_init__(self) -> None:
         self.backend = FhemMcpServer(config_root=self.config_root)
@@ -156,7 +157,13 @@ class StdioMcpServer:
         try:
             if method == "initialize":
                 requested_version = params.get("protocolVersion")
-                protocol_version = requested_version if isinstance(requested_version, str) and requested_version else self.SUPPORTED_PROTOCOL_VERSIONS[0]
+                if (
+                    isinstance(requested_version, str)
+                    and requested_version in self.SUPPORTED_PROTOCOL_VERSIONS
+                ):
+                    protocol_version = requested_version
+                else:
+                    protocol_version = self.DEFAULT_PROTOCOL_VERSION
                 return {
                     "jsonrpc": "2.0",
                     "id": req_id,
@@ -164,11 +171,7 @@ class StdioMcpServer:
                         "protocolVersion": protocol_version,
                         "serverInfo": {"name": "fhem-mcp", "title": "FHEM Config MCP", "version": "0.1.0"},
                         "instructions": "Read-only FHEM config server. Use tools to inspect config files, devices, attributes, and includes.",
-                        "capabilities": {
-                            "tools": {"listChanged": False},
-                            "prompts": {"listChanged": False},
-                            "resources": {"subscribe": False, "listChanged": False},
-                        },
+                        "capabilities": {"tools": {}},
                     },
                 }
 
