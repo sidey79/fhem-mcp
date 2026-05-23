@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, TextIO
 
+from .mcp_schema import TOOL_DEFINITIONS, build_tool_list
 from .server import FhemMcpServer
 
 
@@ -56,22 +57,7 @@ class StdioMcpServer:
             outstream.flush()
 
     def _tools(self) -> list[dict[str, Any]]:
-        return [
-            {"name": "list_config_files", "description": "List all .cfg files under config root", "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False}},
-            {"name": "read_config_file", "description": "Read one config file", "inputSchema": {"type": "object", "properties": {"relative_path": {"type": "string"}}, "required": ["relative_path"], "additionalProperties": False}},
-            {"name": "list_devices", "description": "List parsed devices from one config file", "inputSchema": {"type": "object", "properties": {"relative_path": {"type": "string"}}, "required": ["relative_path"], "additionalProperties": False}},
-            {"name": "get_device", "description": "Get one parsed device from one config file", "inputSchema": {"type": "object", "properties": {"relative_path": {"type": "string"}, "device_name": {"type": "string"}}, "required": ["relative_path", "device_name"], "additionalProperties": False}},
-            {"name": "list_groups", "description": "List group attribute values to devices", "inputSchema": {"type": "object", "properties": {"relative_path": {"type": "string"}, "group_name": {"type": "string"}}, "additionalProperties": False}},
-            {"name": "list_rooms", "description": "List room attribute values to devices", "inputSchema": {"type": "object", "properties": {"relative_path": {"type": "string"}}, "additionalProperties": False}},
-            {"name": "list_attributes", "description": "List attributes for one or all devices", "inputSchema": {"type": "object", "properties": {"relative_path": {"type": "string"}, "device_name": {"type": "string"}}, "required": ["relative_path"], "additionalProperties": False}},
-            {"name": "find_devices_by_attr", "description": "Find devices by attribute/value", "inputSchema": {"type": "object", "properties": {"relative_path": {"type": "string"}, "attribute": {"type": "string"}, "value": {"type": "string"}}, "required": ["relative_path", "attribute"], "additionalProperties": False}},
-            {"name": "find_devices_by_type", "description": "Find devices by device type", "inputSchema": {"type": "object", "properties": {"relative_path": {"type": "string"}, "device_type": {"type": "string"}}, "required": ["relative_path", "device_type"], "additionalProperties": False}},
-            {"name": "list_includes", "description": "List include directives and resolved targets", "inputSchema": {"type": "object", "properties": {"relative_path": {"type": "string"}}, "required": ["relative_path"], "additionalProperties": False}},
-            {"name": "list_config_summary", "description": "Short summary over config(s)", "inputSchema": {"type": "object", "properties": {"relative_path": {"type": "string"}}, "additionalProperties": False}},
-            {"name": "search_config", "description": "Search a text pattern in config files", "inputSchema": {"type": "object", "properties": {"pattern": {"type": "string"}, "relative_path": {"type": "string"}}, "required": ["pattern"], "additionalProperties": False}},
-            {"name": "validate_config", "description": "Basic config validation", "inputSchema": {"type": "object", "properties": {"relative_path": {"type": "string"}}, "additionalProperties": False}},
-            {"name": "get_device_full", "description": "Find one device repo-wide", "inputSchema": {"type": "object", "properties": {"device_name": {"type": "string"}}, "required": ["device_name"], "additionalProperties": False}},
-        ]
+        return build_tool_list()
 
     def _handle_request(self, request: dict[str, Any]) -> dict[str, Any]:
         req_id = request["id"]
@@ -99,11 +85,16 @@ class StdioMcpServer:
             if method == "tools/call":
                 if "arguments" in params and not isinstance(params["arguments"], dict):
                     return self._error(req_id, -32602, "Invalid params")
-                valid_tools = {tool["name"] for tool in self._tools()}
-                if params.get("name") not in valid_tools:
+                tool_name = params.get("name")
+                if tool_name not in TOOL_DEFINITIONS:
+                    return self._error(req_id, -32602, "Invalid params")
+                _, model = TOOL_DEFINITIONS[tool_name]
+                try:
+                    validated = model.model_validate(params.get("arguments", {})).model_dump(exclude_none=False)
+                except Exception:
                     return self._error(req_id, -32602, "Invalid params")
                 try:
-                    return {"jsonrpc": "2.0", "id": req_id, "result": self._call_tool(params)}
+                    return {"jsonrpc": "2.0", "id": req_id, "result": self._call_tool(tool_name, validated)}
                 except (ValueError, OSError) as exc:
                     return {"jsonrpc": "2.0", "id": req_id, "result": {"isError": True, "content": [{"type": "text", "text": str(exc)}]}}
 
@@ -117,9 +108,7 @@ class StdioMcpServer:
         except Exception as exc:
             return self._error(req_id, -32000, f"Unhandled server error: {exc}")
 
-    def _call_tool(self, params: dict[str, Any]) -> dict[str, Any]:
-        tool_name = params["name"]
-        arguments = params.get("arguments", {})
+    def _call_tool(self, tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
 
         if tool_name == "list_config_files":
             payload = self.backend.list_config_files()

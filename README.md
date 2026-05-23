@@ -11,6 +11,7 @@ Dieses Repository enthält ein **read-only** Grundgerüst für einen FHEM MCP Se
   - `include`
 - Quellpositions-Tracking (Datei + Zeilennummer)
 - Read-only Tool-Funktionen (kein Write/Apply)
+- MCP Tool-Schemas sind über Pydantic-Modelle typisiert und werden als JSON-Schema für MCP generiert
 
 Nicht enthalten in Phase 1 (Phase 2+):
 
