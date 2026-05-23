@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fhem-mcp"
-version = "0.1.2"
+version = "0.2.0"
 description = "Phase 1 skeleton MCP server for safe, read-only FHEM config access"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.13"
 dependencies = ["fastmcp>=2.0", "pydantic>=2.7"]
 
 [project.optional-dependencies]
