@@ -75,7 +75,7 @@ def main() -> None:
     server = FhemMcpServer(config_root=args.config_root)
 
     if args.command == "mcp-stdio":
-        StdioMcpServer(config_root=args.config_root).run(instream=__import__("sys").stdin, outstream=__import__("sys").stdout)
+        StdioMcpServer(config_root=args.config_root).run(instream=__import__("sys").stdin.buffer, outstream=__import__("sys").stdout.buffer)
         return
 
     if args.command == "list_config_files":

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
+from datetime import datetime
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, TextIO
+from typing import Any, BinaryIO, TextIO
 
 from .mcp_schema import TOOL_DEFINITIONS, build_tool_list
 from .server import FhemMcpServer
@@ -12,27 +14,28 @@ from .server import FhemMcpServer
 @dataclass
 class StdioMcpServer:
     config_root: Path
-    SUPPORTED_PROTOCOL_VERSIONS = ("2024-11-05",)
+    SUPPORTED_PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
 
     def __post_init__(self) -> None:
         self.backend = FhemMcpServer(config_root=self.config_root)
 
-    def run(self, instream: TextIO, outstream: TextIO) -> None:
-        for raw in instream:
-            raw = raw.strip()
-            if not raw:
+    def run(self, instream: BinaryIO | TextIO, outstream: BinaryIO | TextIO) -> None:
+        while True:
+            raw = self._read_message(instream)
+            self._dbg(f"read raw: {raw[:200] if isinstance(raw, str) else raw}")
+            if raw is None:
+                return
+            if not raw.strip():
                 continue
 
             try:
                 request = json.loads(raw)
             except json.JSONDecodeError:
-                outstream.write(json.dumps(self._error(None, -32700, "Parse error")) + "\n")
-                outstream.flush()
+                self._write_message(outstream, self._error(None, -32700, "Parse error"))
                 continue
 
             if isinstance(request, list) and not request:
-                outstream.write(json.dumps(self._error(None, -32600, "Invalid Request")) + "\n")
-                outstream.flush()
+                self._write_message(outstream, self._error(None, -32600, "Invalid Request"))
                 continue
 
             requests = request if isinstance(request, list) else [request]
@@ -53,8 +56,88 @@ class StdioMcpServer:
                 continue
 
             payload = responses if isinstance(request, list) else responses[0]
-            outstream.write(json.dumps(payload) + "\n")
-            outstream.flush()
+            self._dbg(f"write payload: {json.dumps(payload, ensure_ascii=False)[:300]}")
+            self._write_message(outstream, payload)
+
+
+
+    @staticmethod
+    def _dbg(message: str) -> None:
+        if os.getenv("FHEM_MCP_DEBUG", "").lower() not in ("1", "true", "yes", "on"):
+            return
+        try:
+            with open("/tmp/fhem-mcp-handshake.log", "a", encoding="utf-8") as fh:
+                fh.write(f"{datetime.now().isoformat()} {message}\n")
+        except Exception:
+            pass
+
+    @staticmethod
+    def _write_message(outstream: BinaryIO | TextIO, payload: dict[str, Any] | list[dict[str, Any]]) -> None:
+        # Codex stdio uses newline-delimited JSON-RPC messages.
+        text = json.dumps(payload, ensure_ascii=False) + "\n"
+        try:
+            outstream.write(text.encode("utf-8"))
+        except TypeError:
+            outstream.write(text)
+        outstream.flush()
+
+    @staticmethod
+    def _read_message(instream: BinaryIO | TextIO) -> str | None:
+        first = instream.readline()
+        if first in (b"", ""):
+            return None
+
+        if isinstance(first, str):
+            if first.lstrip()[:1] in ("{", "["):
+                return first
+            headers: dict[str, str] = {}
+            line = first
+            while True:
+                if line in ("\r\n", "\n", ""):
+                    break
+                key, sep, value = line.partition(":")
+                if sep:
+                    headers[key.strip().lower()] = value.strip()
+                line = instream.readline()
+            length_raw = headers.get("content-length")
+            if length_raw is None:
+                return ""
+            try:
+                content_length = int(length_raw)
+            except ValueError:
+                return ""
+            body = instream.read(content_length)
+            if len(body) != content_length:
+                return None
+            return body
+
+        if first.lstrip()[:1] in (b"{", b"["):
+            return first.decode("utf-8", errors="replace")
+
+        headers: dict[str, str] = {}
+        line = first
+        while True:
+            if line in (b"\r\n", b"\n", b""):
+                break
+            key, sep, value = line.partition(b":")
+            if sep:
+                headers[key.decode("ascii", errors="ignore").strip().lower()] = value.decode(
+                    "ascii", errors="ignore"
+                ).strip()
+            line = instream.readline()
+
+        length_raw = headers.get("content-length")
+        if length_raw is None:
+            return ""
+        try:
+            content_length = int(length_raw)
+        except ValueError:
+            return ""
+
+        body = instream.read(content_length)
+        if len(body) != content_length:
+            return None
+        return body.decode("utf-8", errors="replace")
 
     def _tools(self) -> list[dict[str, Any]]:
         return build_tool_list()
@@ -73,11 +156,21 @@ class StdioMcpServer:
         try:
             if method == "initialize":
                 requested_version = params.get("protocolVersion")
-                if requested_version in self.SUPPORTED_PROTOCOL_VERSIONS:
-                    protocol_version = requested_version
-                else:
-                    protocol_version = self.SUPPORTED_PROTOCOL_VERSIONS[0]
-                return {"jsonrpc": "2.0", "id": req_id, "result": {"protocolVersion": protocol_version, "serverInfo": {"name": "fhem-mcp", "version": "0.1.0"}, "capabilities": {"tools": {}}}}
+                protocol_version = requested_version if isinstance(requested_version, str) and requested_version else self.SUPPORTED_PROTOCOL_VERSIONS[0]
+                return {
+                    "jsonrpc": "2.0",
+                    "id": req_id,
+                    "result": {
+                        "protocolVersion": protocol_version,
+                        "serverInfo": {"name": "fhem-mcp", "title": "FHEM Config MCP", "version": "0.1.0"},
+                        "instructions": "Read-only FHEM config server. Use tools to inspect config files, devices, attributes, and includes.",
+                        "capabilities": {
+                            "tools": {"listChanged": False},
+                            "prompts": {"listChanged": False},
+                            "resources": {"subscribe": False, "listChanged": False},
+                        },
+                    },
+                }
 
             if method == "tools/list":
                 return {"jsonrpc": "2.0", "id": req_id, "result": {"tools": self._tools()}}
@@ -96,7 +189,11 @@ class StdioMcpServer:
                 try:
                     return {"jsonrpc": "2.0", "id": req_id, "result": self._call_tool(tool_name, validated)}
                 except (ValueError, OSError) as exc:
-                    return {"jsonrpc": "2.0", "id": req_id, "result": {"isError": True, "content": [{"type": "text", "text": str(exc)}]}}
+                    return {
+                        "jsonrpc": "2.0",
+                        "id": req_id,
+                        "result": {"isError": True, "content": [{"type": "text", "text": str(exc)}]},
+                    }
 
             return self._error(req_id, -32601, f"Method not found: {method}")
         except ValueError as exc:
@@ -109,7 +206,6 @@ class StdioMcpServer:
             return self._error(req_id, -32000, f"Unhandled server error: {exc}")
 
     def _call_tool(self, tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
-
         if tool_name == "list_config_files":
             payload = self.backend.list_config_files()
         elif tool_name == "read_config_file":

@@ -64,6 +64,16 @@ Die vollständige CLI/MCP-Nutzung (inkl. `mcp-stdio`, IDE-Beispiel und Testkomma
 
 - `docs/cli-mcp-access.md`
 
+## Debug-Logging (optional)
+
+Für MCP-Handshake-Debugging kann Logging über eine Umgebungsvariable aktiviert werden:
+
+```bash
+FHEM_MCP_DEBUG=1 python -m fhem_mcp --config-root /ABSOLUTER/PFAD/ZU/CONFIG mcp-stdio
+```
+
+Bei aktivem Schalter schreibt der Server Debug-Ausgaben nach `/tmp/fhem-mcp-handshake.log`.
+
 ## Beispiel-Konfiguration für MCP-Clients
 
 Viele IDEs/Agent-Hosts verwenden eine MCP-Serverliste ähnlich diesem Muster:
