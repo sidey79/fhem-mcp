@@ -219,6 +219,8 @@ class FhemMcpServer:
         for rel in self.list_config_files():
             try:
                 path = self._resolve_in_root(rel)
+                if not path.exists() or not path.is_file():
+                    raise OSError("File is not readable")
                 resolved_files.append(path)
             except (ValueError, OSError, RuntimeError) as exc:
                 errors.append(
@@ -354,7 +356,8 @@ class FhemMcpServer:
             try:
                 resolved_path = self._resolve_abs_in_root(parent / event.include.path_token)
                 exists = resolved_path.exists()
-                rel_resolved = str(resolved_path.relative_to(self.config_root))
+                if exists:
+                    rel_resolved = str(resolved_path.relative_to(self.config_root))
             except (ValueError, OSError, RuntimeError):
                 pass
             includes.append(
@@ -437,9 +440,19 @@ class FhemMcpServer:
             files = self._collect_cfg_files_recursive(file_path)
 
         seen_devices: dict[str, str] = {}
-
         for path in files:
-            parsed = self.parser.parse_file(path)
+            try:
+                parsed = self.parser.parse_file(path)
+            except (OSError, RuntimeError) as exc:
+                errors.append(
+                    {
+                        "type": "unreadable_config_file",
+                        "file": str(path),
+                        "message": str(exc),
+                    }
+                )
+                continue
+
             for dev in parsed.device_definitions:
                 position = f"{dev.source.file_path}:{dev.source.line_number}"
                 if dev.name in seen_devices:
