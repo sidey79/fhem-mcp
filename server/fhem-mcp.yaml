@@ -19,7 +19,7 @@ variants:
       - -i
       - -v
       - /ABSOLUTER/PFAD/ZU/FHEM/CONFIG:/config:ro
-      - ghcr.io/sidey79/fhem-mcp:0.1.2
+      - ghcr.io/sidey79/fhem-mcp:0.2.0
       - --config-root
       - /config
       - mcp-stdio
