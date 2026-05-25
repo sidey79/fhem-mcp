@@ -252,6 +252,10 @@ class FhemMcpServer:
             raise ValueError("base_url must use http or https")
         if not parsed.netloc:
             raise ValueError("base_url must include host")
+        if parsed.query:
+            raise ValueError("base_url must not include query parameters")
+        if parsed.fragment:
+            raise ValueError("base_url must not include fragment")
         return parsed
 
     @staticmethod

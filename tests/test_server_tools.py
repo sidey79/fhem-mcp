@@ -419,7 +419,12 @@ def test_read_live_config_http_uses_custom_ca_bundle() -> None:
 def test_read_live_config_http_rejects_invalid_inputs() -> None:
     server = FhemMcpServer(config_root=Path("tests/fixtures"))
 
-    for base_url in ("ftp://127.0.0.1/fhem", "http:///fhem"):
+    for base_url in (
+        "ftp://127.0.0.1/fhem",
+        "http:///fhem",
+        "https://zeus:8088/fhem?cmd=shutdown",
+        "https://zeus:8088/fhem#frag",
+    ):
         try:
             server.read_live_config_http(base_url=base_url)
         except ValueError:
@@ -540,6 +545,18 @@ def test_read_live_log_http_with_zero_max_lines_returns_empty() -> None:
         )
 
     assert payload == ""
+
+
+def test_list_live_logs_http_rejects_base_url_with_query_or_fragment() -> None:
+    server = FhemMcpServer(config_root=Path("tests/fixtures"))
+
+    for base_url in ("https://zeus:8088/fhem?cmd=list", "https://zeus:8088/fhem#x"):
+        try:
+            server.list_live_logs_http(base_url=base_url)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("Expected ValueError for unsafe base_url")
 
 
 def test_list_live_logs_http_parses_filelog_jsonlist2() -> None:
