@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 from base64 import b64encode
+from html import unescape
+from ssl import SSLContext, create_default_context
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import ParseResult, quote_plus, urlparse
+import re
 from urllib.request import Request, urlopen
 from typing import Literal
 
@@ -261,12 +265,23 @@ class FhemMcpServer:
             raise ValueError("config_path contains unsupported characters")
         return candidate
 
+    @staticmethod
+    def _build_tls_context(ca_file: str | None, ca_path: str | None) -> SSLContext | None:
+        if ca_file is not None and not ca_file.strip():
+            raise ValueError("ca_file must not be empty")
+        if ca_path is not None and not ca_path.strip():
+            raise ValueError("ca_path must not be empty")
+        if ca_file is None and ca_path is None:
+            return None
+        return create_default_context(cafile=ca_file, capath=ca_path)
+
     def _fetch_fwcsrf_http(
         self,
         base_url: str,
         timeout_seconds: float,
         username: str | None,
         password: str | None,
+        ssl_context: SSLContext | None,
     ) -> str:
         separator = "&" if "?" in base_url else "?"
         token_url = f"{base_url}{separator}XHR=1"
@@ -275,11 +290,15 @@ class FhemMcpServer:
             auth = b64encode(f"{username}:{password}".encode("utf-8")).decode("ascii")
             request.add_header("Authorization", f"Basic {auth}")
 
-        with urlopen(request, timeout=timeout_seconds) as response:
+        if ssl_context is None:
+            response_ctx = urlopen(request, timeout=timeout_seconds)
+        else:
+            response_ctx = urlopen(request, timeout=timeout_seconds, context=ssl_context)
+        with response_ctx as response:
             token = response.headers.get("X-FHEM-csrfToken")
 
         if token is None or not token.strip():
-            raise ValueError("Unable to fetch fwcsrf token from FHEM response headers")
+            return ""
         return token.strip()
 
     def read_live_config_http(
@@ -290,6 +309,8 @@ class FhemMcpServer:
         timeout_seconds: float = 5.0,
         username: str | None = None,
         password: str | None = None,
+        ca_file: str | None = None,
+        ca_path: str | None = None,
     ) -> str:
         self._validate_live_base_url(base_url)
         target_cfg = self._validate_live_cfg_token(config_path)
@@ -299,10 +320,13 @@ class FhemMcpServer:
         if (username is None) != (password is None):
             raise ValueError("username and password must be provided together")
 
-        token = fwcsrf or self._fetch_fwcsrf_http(base_url, timeout_seconds, username, password)
+        ssl_context = self._build_tls_context(ca_file, ca_path)
+        token = fwcsrf if fwcsrf is not None else self._fetch_fwcsrf_http(base_url, timeout_seconds, username, password, ssl_context)
 
-        cmd = f"cat {target_cfg}"
-        query_parts = [f"cmd={quote_plus(cmd)}", "XHR=1", f"fwcsrf={quote_plus(token)}"]
+        cmd = f"style edit {target_cfg}"
+        query_parts = [f"cmd={quote_plus(cmd)}"]
+        if token:
+            query_parts.append(f"fwcsrf={quote_plus(token)}")
         separator = "&" if "?" in base_url else "?"
         request_url = f"{base_url}{separator}{'&'.join(query_parts)}"
 
@@ -310,9 +334,114 @@ class FhemMcpServer:
         if username is not None and password is not None:
             auth = b64encode(f"{username}:{password}".encode("utf-8")).decode("ascii")
             request.add_header("Authorization", f"Basic {auth}")
-        with urlopen(request, timeout=timeout_seconds) as response:
+        if ssl_context is None:
+            response_ctx = urlopen(request, timeout=timeout_seconds)
+        else:
+            response_ctx = urlopen(request, timeout=timeout_seconds, context=ssl_context)
+        with response_ctx as response:
             payload = response.read()
-        return payload.decode("utf-8", errors="replace")
+        decoded = payload.decode("utf-8", errors="replace")
+        match = re.search(r"<textarea[^>]*>(.*?)</textarea>", decoded, flags=re.IGNORECASE | re.DOTALL)
+        if match is not None:
+            return unescape(match.group(1))
+        return decoded
+
+    @staticmethod
+    def _parse_log_timestamp(line: str) -> datetime | None:
+        if len(line) < 19:
+            return None
+        stamp = line[:19]
+        try:
+            return datetime.strptime(stamp, "%Y.%m.%d %H:%M:%S")
+        except ValueError:
+            return None
+
+    @staticmethod
+    def _filter_log_lines(
+        content: str,
+        contains: str | None,
+        regex: str | None,
+        since: str | None,
+        until: str | None,
+        max_lines: int | None,
+        ignore_case: bool,
+    ) -> str:
+        lines = content.splitlines()
+        out: list[str] = []
+
+        since_dt = datetime.strptime(since, "%Y-%m-%d %H:%M:%S") if since else None
+        until_dt = datetime.strptime(until, "%Y-%m-%d %H:%M:%S") if until else None
+
+        regex_obj = None
+        if regex:
+            flags = re.IGNORECASE if ignore_case else 0
+            regex_obj = re.compile(regex, flags=flags)
+
+        needle = contains.lower() if (contains and ignore_case) else contains
+
+        for line in lines:
+            ts = FhemMcpServer._parse_log_timestamp(line)
+            if since_dt is not None and (ts is None or ts < since_dt):
+                continue
+            if until_dt is not None and (ts is None or ts > until_dt):
+                continue
+
+            if needle:
+                hay = line.lower() if ignore_case else line
+                if needle not in hay:
+                    continue
+
+            if regex_obj and not regex_obj.search(line):
+                continue
+
+            out.append(line)
+
+        if max_lines is not None and max_lines >= 0:
+            out = out[-max_lines:]
+
+        return "\n".join(out)
+
+    def read_live_log_http(
+        self,
+        base_url: str,
+        log_path: str = "./log/fhem-%Y-%m-%d.log",
+        fwcsrf: str | None = None,
+        timeout_seconds: float = 5.0,
+        username: str | None = None,
+        password: str | None = None,
+        ca_file: str | None = None,
+        ca_path: str | None = None,
+        contains: str | None = None,
+        regex: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        max_lines: int | None = 500,
+        ignore_case: bool = False,
+    ) -> str:
+        if not log_path.strip():
+            raise ValueError("log_path must not be empty")
+        if timeout_seconds <= 0:
+            raise ValueError("timeout_seconds must be > 0")
+        if (username is None) != (password is None):
+            raise ValueError("username and password must be provided together")
+        if max_lines is not None and max_lines < 0:
+            raise ValueError("max_lines must be >= 0")
+        if since is not None:
+            datetime.strptime(since, "%Y-%m-%d %H:%M:%S")
+        if until is not None:
+            datetime.strptime(until, "%Y-%m-%d %H:%M:%S")
+
+        raw = self.read_live_config_http(
+            base_url=base_url,
+            config_path=log_path,
+            fwcsrf=fwcsrf,
+            timeout_seconds=timeout_seconds,
+            username=username,
+            password=password,
+            ca_file=ca_file,
+            ca_path=ca_path,
+        )
+        return self._filter_log_lines(raw, contains, regex, since, until, max_lines, ignore_case)
 
     def list_devices(self, relative_path: str) -> list[dict[str, object]]:
         file_path = self._resolve_in_root(relative_path)

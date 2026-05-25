@@ -223,6 +223,25 @@ class StdioMcpServer:
                 arguments.get("timeout_seconds", 5.0),
                 arguments.get("username"),
                 arguments.get("password"),
+                arguments.get("ca_file"),
+                arguments.get("ca_path"),
+            )
+        elif tool_name == "read_live_log_http":
+            payload = self.backend.read_live_log_http(
+                arguments["base_url"],
+                arguments.get("log_path", "./log/fhem-%Y-%m-%d.log"),
+                arguments.get("fwcsrf"),
+                arguments.get("timeout_seconds", 5.0),
+                arguments.get("username"),
+                arguments.get("password"),
+                arguments.get("ca_file"),
+                arguments.get("ca_path"),
+                arguments.get("contains"),
+                arguments.get("regex"),
+                arguments.get("since"),
+                arguments.get("until"),
+                arguments.get("max_lines", 500),
+                arguments.get("ignore_case", False),
             )
         elif tool_name == "get_device":
             payload = self.backend.get_device(arguments["relative_path"], arguments["device_name"])

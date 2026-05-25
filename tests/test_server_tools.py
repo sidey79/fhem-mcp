@@ -354,7 +354,7 @@ def test_read_live_config_http_builds_expected_request() -> None:
 
     responses = [
         _Resp(b"", {"X-FHEM-csrfToken": "csrf_123"}),
-        _Resp(b"define x dummy 1\n"),
+        _Resp(b"<html><textarea>define x dummy 1\n</textarea></html>"),
     ]
 
     with patch("fhem_mcp.server.urlopen", side_effect=responses) as mocked_urlopen:
@@ -373,10 +373,47 @@ def test_read_live_config_http_builds_expected_request() -> None:
     assert mocked_urlopen.call_args_list[1].kwargs["timeout"] == 3.5
     assert token_request.full_url.endswith("?XHR=1")
     assert command_request.full_url.startswith("http://127.0.0.1:8083/fhem?")
-    assert "cmd=cat+fhem.cfg" in command_request.full_url
+    assert "cmd=style+edit+fhem.cfg" in command_request.full_url
     assert "fwcsrf=csrf_123" in command_request.full_url
+    assert "XHR=1" not in command_request.full_url
     assert token_request.get_header("Authorization").startswith("Basic ")
     assert command_request.get_header("Authorization").startswith("Basic ")
+
+
+def test_read_live_config_http_uses_custom_ca_bundle() -> None:
+    server = FhemMcpServer(config_root=Path("tests/fixtures"))
+
+    class _Resp:
+        def __init__(self, headers: dict[str, str] | None = None, body: bytes = b"") -> None:
+            self.headers = headers or {}
+            self._body = body
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return self._body
+
+    responses = [
+        _Resp(headers={"X-FHEM-csrfToken": "csrf_123"}),
+        _Resp(body=b"ok\n"),
+    ]
+
+    with patch("fhem_mcp.server.create_default_context", return_value="CTX") as mk_ctx:
+        with patch("fhem_mcp.server.urlopen", side_effect=responses) as mocked_urlopen:
+            payload = server.read_live_config_http(
+                "https://zeus:8088",
+                ca_file="/opt/docker/rootca/ca.pem",
+                ca_path="/opt/docker/rootca",
+            )
+
+    assert payload == "ok\n"
+    mk_ctx.assert_called_once_with(cafile="/opt/docker/rootca/ca.pem", capath="/opt/docker/rootca")
+    assert mocked_urlopen.call_args_list[0].kwargs["context"] == "CTX"
+    assert mocked_urlopen.call_args_list[1].kwargs["context"] == "CTX"
 
 
 def test_read_live_config_http_rejects_invalid_inputs() -> None:
@@ -405,6 +442,14 @@ def test_read_live_config_http_rejects_invalid_inputs() -> None:
     else:
         raise AssertionError("Expected ValueError for invalid timeout")
 
+    for bad in ("", "   "):
+        try:
+            server.read_live_config_http(base_url="https://127.0.0.1:8088", ca_file=bad)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("Expected ValueError for invalid ca_file")
+
 
 def test_read_live_config_http_requires_username_and_password_together() -> None:
     server = FhemMcpServer(config_root=Path("tests/fixtures"))
@@ -417,11 +462,13 @@ def test_read_live_config_http_requires_username_and_password_together() -> None
         raise AssertionError("Expected ValueError for incomplete basic auth")
 
 
-def test_read_live_config_http_raises_when_fwcsrf_missing_in_header() -> None:
+def test_read_live_config_http_without_fwcsrf_header_still_reads() -> None:
     server = FhemMcpServer(config_root=Path("tests/fixtures"))
 
     class _Resp:
-        headers: dict[str, str] = {}
+        def __init__(self, headers: dict[str, str] | None = None, body: bytes = b"") -> None:
+            self.headers = headers or {}
+            self._body = body
 
         def __enter__(self):
             return self
@@ -430,12 +477,51 @@ def test_read_live_config_http_raises_when_fwcsrf_missing_in_header() -> None:
             return False
 
         def read(self) -> bytes:
-            return b""
+            return self._body
 
-    with patch("fhem_mcp.server.urlopen", return_value=_Resp()):
-        try:
-            server.read_live_config_http(base_url="http://127.0.0.1:8083/fhem")
-        except ValueError:
-            pass
-        else:
-            raise AssertionError("Expected ValueError for missing fwcsrf response header")
+    responses = [_Resp(headers={}), _Resp(body=b"<html><textarea>ok\n</textarea></html>")]
+    with patch("fhem_mcp.server.urlopen", side_effect=responses) as mocked_urlopen:
+        payload = server.read_live_config_http(base_url="http://127.0.0.1:8083/fhem")
+
+    assert payload == "ok\n"
+    command_request = mocked_urlopen.call_args_list[1].args[0]
+    assert "fwcsrf=" not in command_request.full_url
+
+
+def test_read_live_log_http_filters_and_limits_lines() -> None:
+    server = FhemMcpServer(config_root=Path("tests/fixtures"))
+
+    log_body = """2026.05.25 12:00:00 1: ASC bu.Markise sunny\n2026.05.25 12:01:00 1: ASC bu.Markise cloudy\n2026.05.25 12:02:00 1: ASC dg.Rolladen1 sunny\n"""
+
+    with patch.object(server, "read_live_config_http", return_value=log_body) as mocked_read:
+        payload = server.read_live_log_http(
+            base_url="https://zeus:8088/fhem",
+            contains="asc",
+            regex="bu\\.Markise",
+            since="2026-05-25 12:00:30",
+            until="2026-05-25 12:01:30",
+            max_lines=10,
+            ignore_case=True,
+        )
+
+    mocked_read.assert_called_once()
+    assert payload == "2026.05.25 12:01:00 1: ASC bu.Markise cloudy"
+
+
+def test_read_live_log_http_rejects_invalid_inputs() -> None:
+    server = FhemMcpServer(config_root=Path("tests/fixtures"))
+
+    try:
+        server.read_live_log_http(base_url="https://zeus:8088/fhem", max_lines=-1)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("Expected ValueError for invalid max_lines")
+
+    try:
+        server.read_live_log_http(base_url="https://zeus:8088/fhem", since="2026/05/25 12:00:00")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("Expected ValueError for invalid since format")
+
