@@ -545,6 +545,12 @@ class FhemMcpServer:
             datetime.strptime(since, "%Y-%m-%d %H:%M:%S")
         if until is not None:
             datetime.strptime(until, "%Y-%m-%d %H:%M:%S")
+        if regex:
+            flags = re.IGNORECASE if ignore_case else 0
+            try:
+                re.compile(regex, flags=flags)
+            except re.error as exc:
+                raise ValueError(f"invalid regex: {exc}") from exc
 
         target_log = self._validate_live_edit_token(log_path, "log_path")
 
