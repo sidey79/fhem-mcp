@@ -525,3 +525,18 @@ def test_read_live_log_http_rejects_invalid_inputs() -> None:
     else:
         raise AssertionError("Expected ValueError for invalid since format")
 
+
+
+def test_read_live_log_http_with_zero_max_lines_returns_empty() -> None:
+    server = FhemMcpServer(config_root=Path("tests/fixtures"))
+
+    log_body = """2026.05.25 12:00:00 1: ASC one\n2026.05.25 12:01:00 1: ASC two\n"""
+
+    with patch.object(server, "read_live_config_http", return_value=log_body):
+        payload = server.read_live_log_http(
+            base_url="https://zeus:8088/fhem",
+            contains="ASC",
+            max_lines=0,
+        )
+
+    assert payload == ""

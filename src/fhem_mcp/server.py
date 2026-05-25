@@ -397,8 +397,11 @@ class FhemMcpServer:
 
             out.append(line)
 
-        if max_lines is not None and max_lines >= 0:
-            out = out[-max_lines:]
+        if max_lines is not None:
+            if max_lines == 0:
+                return ""
+            if max_lines > 0:
+                out = out[-max_lines:]
 
         return "\n".join(out)
 
