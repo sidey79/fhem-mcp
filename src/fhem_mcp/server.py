@@ -399,7 +399,10 @@ class FhemMcpServer:
         regex_obj = None
         if regex:
             flags = re.IGNORECASE if ignore_case else 0
-            regex_obj = re.compile(regex, flags=flags)
+            try:
+                regex_obj = re.compile(regex, flags=flags)
+            except re.error as exc:
+                raise ValueError(f"invalid regex: {exc}") from exc
 
         needle = contains.lower() if (contains and ignore_case) else contains
 

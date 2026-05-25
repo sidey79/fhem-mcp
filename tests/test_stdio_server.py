@@ -257,3 +257,23 @@ def test_tools_call_list_live_logs_http_roundtrip() -> None:
     payload = json.loads(response["result"]["content"][0]["text"])
     assert payload == {"devices": [], "log_patterns": [], "current_logfiles": []}
 
+
+
+def test_tools_call_read_live_log_http_invalid_regex_returns_iserror() -> None:
+    responses = _run_server_lines(
+        [
+            {
+                "jsonrpc": "2.0",
+                "id": 64,
+                "method": "tools/call",
+                "params": {
+                    "name": "read_live_log_http",
+                    "arguments": {"base_url": "https://zeus:8088/fhem", "regex": "("},
+                },
+            }
+        ],
+        config_root=Path("tests/fixtures"),
+    )
+
+    assert responses[0]["result"]["isError"] is True
+    assert "invalid regex" in responses[0]["result"]["content"][0]["text"]
