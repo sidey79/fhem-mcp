@@ -48,6 +48,15 @@ def _build_parser() -> argparse.ArgumentParser:
     live_log.add_argument("--max-lines", type=int, default=500, help="Optional line limit (tail semantics)")
     live_log.add_argument("--ignore-case", action="store_true", help="Case-insensitive contains/regex filtering")
 
+    list_live_logs = sub.add_parser("list_live_logs_http", help="List live logs via FHEM HTTP jsonlist2 TYPE=FileLog")
+    list_live_logs.add_argument("base_url", help="FHEM web endpoint, e.g. http://127.0.0.1:8083/fhem")
+    list_live_logs.add_argument("--fwcsrf", default=None, help="Optional FHEM CSRF token (otherwise fetched dynamically)")
+    list_live_logs.add_argument("--timeout-seconds", type=float, default=5.0, help="HTTP timeout in seconds")
+    list_live_logs.add_argument("--username", default=None, help="Optional basic auth username")
+    list_live_logs.add_argument("--password", default=None, help="Optional basic auth password")
+    list_live_logs.add_argument("--ca-file", default=None, help="Optional CA bundle file for HTTPS verification")
+    list_live_logs.add_argument("--ca-path", default=None, help="Optional CA directory for HTTPS verification")
+
     list_dev = sub.add_parser("list_devices", help="List parsed devices from one config file")
     list_dev.add_argument("relative_path", help="Path relative to config-root")
 
@@ -128,6 +137,16 @@ def main() -> None:
             args.until,
             args.max_lines,
             args.ignore_case,
+        )
+    elif args.command == "list_live_logs_http":
+        result = server.list_live_logs_http(
+            args.base_url,
+            args.fwcsrf,
+            args.timeout_seconds,
+            args.username,
+            args.password,
+            args.ca_file,
+            args.ca_path,
         )
     elif args.command == "get_device":
         result = server.get_device(args.relative_path, args.device_name)

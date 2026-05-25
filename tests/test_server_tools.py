@@ -540,3 +540,43 @@ def test_read_live_log_http_with_zero_max_lines_returns_empty() -> None:
         )
 
     assert payload == ""
+
+
+def test_list_live_logs_http_parses_filelog_jsonlist2() -> None:
+    server = FhemMcpServer(config_root=Path("tests/fixtures"))
+
+    class _Resp:
+        def __init__(self, body: bytes, headers: dict[str, str] | None = None) -> None:
+            self._body = body
+            self.headers = headers or {}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return self._body
+
+    payload = (
+        '{"Results":['
+        '{"Name":"FileLog_fhem","DEF":"./log/fhem-%Y-%m-%d.log fhem:.*",'
+        '"Internals":{"currentlogfile":"./log/fhem-2026-05-25.log"}},'
+        '{"Name":"FileLog_asc","DEF":"./log/asc-%Y-%m-%d.log ASC:.*",'
+        '"Internals":{"currentlogfile":"./log/asc-2026-05-25.log"}}]}'
+    )
+    responses = [
+        _Resp(b"", {"X-FHEM-csrfToken": "csrf_123"}),
+        _Resp(payload.encode("utf-8")),
+    ]
+
+    with patch("fhem_mcp.server.urlopen", side_effect=responses) as mocked_urlopen:
+        result = server.list_live_logs_http(base_url="https://zeus:8088/fhem")
+
+    assert len(result["devices"]) == 2
+    assert "./log/fhem-%Y-%m-%d.log" in result["log_patterns"]
+    assert "./log/asc-2026-05-25.log" in result["current_logfiles"]
+
+    cmd_request = mocked_urlopen.call_args_list[1].args[0]
+    assert "cmd=jsonlist2+TYPE%3DFileLog" in cmd_request.full_url

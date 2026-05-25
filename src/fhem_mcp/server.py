@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from base64 import b64encode
 from html import unescape
+import json
 from ssl import SSLContext, create_default_context
 from dataclasses import dataclass
 from datetime import datetime
@@ -299,6 +300,35 @@ class FhemMcpServer:
             return ""
         return token.strip()
 
+    @staticmethod
+    def _build_live_request(base_url: str, query_parts: list[str]) -> str:
+        separator = "&" if "?" in base_url else "?"
+        return f"{base_url}{separator}{'&'.join(query_parts)}"
+
+    @staticmethod
+    def _request_with_optional_auth(request: Request, username: str | None, password: str | None) -> None:
+        if username is not None and password is not None:
+            auth = b64encode(f"{username}:{password}".encode("utf-8")).decode("ascii")
+            request.add_header("Authorization", f"Basic {auth}")
+
+    def _http_get_text(
+        self,
+        request_url: str,
+        timeout_seconds: float,
+        username: str | None,
+        password: str | None,
+        ssl_context: SSLContext | None,
+    ) -> str:
+        request = Request(request_url, method="GET")
+        self._request_with_optional_auth(request, username, password)
+        if ssl_context is None:
+            response_ctx = urlopen(request, timeout=timeout_seconds)
+        else:
+            response_ctx = urlopen(request, timeout=timeout_seconds, context=ssl_context)
+        with response_ctx as response:
+            payload = response.read()
+        return payload.decode("utf-8", errors="replace")
+
     def read_live_config_http(
         self,
         base_url: str,
@@ -328,20 +358,9 @@ class FhemMcpServer:
         query_parts = [f"cmd={quote_plus(cmd)}"]
         if token:
             query_parts.append(f"fwcsrf={quote_plus(token)}")
-        separator = "&" if "?" in base_url else "?"
-        request_url = f"{base_url}{separator}{'&'.join(query_parts)}"
+        request_url = self._build_live_request(base_url, query_parts)
 
-        request = Request(request_url, method="GET")
-        if username is not None and password is not None:
-            auth = b64encode(f"{username}:{password}".encode("utf-8")).decode("ascii")
-            request.add_header("Authorization", f"Basic {auth}")
-        if ssl_context is None:
-            response_ctx = urlopen(request, timeout=timeout_seconds)
-        else:
-            response_ctx = urlopen(request, timeout=timeout_seconds, context=ssl_context)
-        with response_ctx as response:
-            payload = response.read()
-        decoded = payload.decode("utf-8", errors="replace")
+        decoded = self._http_get_text(request_url, timeout_seconds, username, password, ssl_context)
         match = re.search(r"<textarea[^>]*>(.*?)</textarea>", decoded, flags=re.IGNORECASE | re.DOTALL)
         if match is not None:
             return unescape(match.group(1))
@@ -404,6 +423,91 @@ class FhemMcpServer:
                 out = out[-max_lines:]
 
         return "\n".join(out)
+
+    def list_live_logs_http(
+        self,
+        base_url: str,
+        fwcsrf: str | None = None,
+        timeout_seconds: float = 5.0,
+        username: str | None = None,
+        password: str | None = None,
+        ca_file: str | None = None,
+        ca_path: str | None = None,
+    ) -> dict[str, object]:
+        self._validate_live_base_url(base_url)
+        if timeout_seconds <= 0:
+            raise ValueError("timeout_seconds must be > 0")
+        if (username is None) != (password is None):
+            raise ValueError("username and password must be provided together")
+
+        ssl_context = self._build_tls_context(ca_file, ca_path)
+        token = fwcsrf if fwcsrf is not None else self._fetch_fwcsrf_http(base_url, timeout_seconds, username, password, ssl_context)
+
+        query_parts = [f"cmd={quote_plus('jsonlist2 TYPE=FileLog')}", "XHR=1"]
+        if token:
+            query_parts.append(f"fwcsrf={quote_plus(token)}")
+        request_url = self._build_live_request(base_url, query_parts)
+        decoded = self._http_get_text(request_url, timeout_seconds, username, password, ssl_context)
+
+        try:
+            payload = json.loads(decoded)
+        except json.JSONDecodeError:
+            match = re.search(r"(\{.*\})", decoded, flags=re.DOTALL)
+            if match is None:
+                raise ValueError("Unable to parse jsonlist2 FileLog response as JSON")
+            try:
+                payload = json.loads(match.group(1))
+            except json.JSONDecodeError as exc:
+                raise ValueError("Unable to parse jsonlist2 FileLog response as JSON") from exc
+
+        results = payload.get("Results") if isinstance(payload, dict) else None
+        if not isinstance(results, list):
+            raise ValueError("Unexpected jsonlist2 FileLog response format")
+
+        devices: list[dict[str, str | None]] = []
+        log_patterns: list[str] = []
+        current_logfiles: list[str] = []
+
+        for item in results:
+            if not isinstance(item, dict):
+                continue
+            name = item.get("Name")
+            if not isinstance(name, str):
+                continue
+
+            definition = item.get("DEF")
+            def_logfile: str | None = None
+            if isinstance(definition, str):
+                parts = definition.split()
+                if parts:
+                    def_logfile = parts[0]
+
+            internals = item.get("Internals")
+            current_logfile: str | None = None
+            if isinstance(internals, dict):
+                for key in ("currentlogfile", "CURRENTLOGFILE", "logfile", "LOGFILE"):
+                    value = internals.get(key)
+                    if isinstance(value, str) and value.strip():
+                        current_logfile = value.strip()
+                        break
+
+            devices.append(
+                {
+                    "device": name,
+                    "def_logfile": def_logfile,
+                    "current_logfile": current_logfile,
+                }
+            )
+            if def_logfile and def_logfile not in log_patterns:
+                log_patterns.append(def_logfile)
+            if current_logfile and current_logfile not in current_logfiles:
+                current_logfiles.append(current_logfile)
+
+        return {
+            "devices": devices,
+            "log_patterns": log_patterns,
+            "current_logfiles": current_logfiles,
+        }
 
     def read_live_log_http(
         self,

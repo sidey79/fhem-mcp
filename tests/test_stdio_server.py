@@ -233,3 +233,27 @@ def test_tools_call_read_live_log_http_roundtrip() -> None:
     payload = json.loads(response["result"]["content"][0]["text"])
     assert payload == "2026.05.25 12:00:00 1: test"
 
+
+
+def test_tools_call_list_live_logs_http_roundtrip() -> None:
+    server = StdioMcpServer(config_root=Path("tests/fixtures"))
+    server.backend.list_live_logs_http = lambda *args, **kwargs: {"devices": [], "log_patterns": [], "current_logfiles": []}
+
+    inp = io.StringIO(
+        json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 63,
+                "method": "tools/call",
+                "params": {"name": "list_live_logs_http", "arguments": {"base_url": "https://zeus:8088/fhem"}},
+            }
+        )
+        + "\n"
+    )
+    out = io.StringIO()
+    server.run(inp, out)
+
+    response = json.loads(out.getvalue().strip())
+    payload = json.loads(response["result"]["content"][0]["text"])
+    assert payload == {"devices": [], "log_patterns": [], "current_logfiles": []}
+

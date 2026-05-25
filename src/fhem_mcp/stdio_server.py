@@ -243,6 +243,16 @@ class StdioMcpServer:
                 arguments.get("max_lines", 500),
                 arguments.get("ignore_case", False),
             )
+        elif tool_name == "list_live_logs_http":
+            payload = self.backend.list_live_logs_http(
+                arguments["base_url"],
+                arguments.get("fwcsrf"),
+                arguments.get("timeout_seconds", 5.0),
+                arguments.get("username"),
+                arguments.get("password"),
+                arguments.get("ca_file"),
+                arguments.get("ca_path"),
+            )
         elif tool_name == "get_device":
             payload = self.backend.get_device(arguments["relative_path"], arguments["device_name"])
         elif tool_name == "list_groups":
