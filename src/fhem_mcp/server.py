@@ -254,15 +254,13 @@ class FhemMcpServer:
         return parsed
 
     @staticmethod
-    def _validate_live_cfg_token(config_path: str) -> str:
-        candidate = config_path.strip()
+    def _validate_live_edit_token(path_value: str, field_name: str) -> str:
+        candidate = path_value.strip()
         if not candidate:
-            raise ValueError("config_path must not be empty")
-        if not candidate.endswith(".cfg"):
-            raise ValueError("config_path must end with .cfg")
+            raise ValueError(f"{field_name} must not be empty")
         banned = {"\n", "\r", "\t", ";", "|", "&", "`", "$", ">", "<"}
         if any(ch in candidate for ch in banned):
-            raise ValueError("config_path contains unsupported characters")
+            raise ValueError(f"{field_name} contains unsupported characters")
         return candidate
 
     @staticmethod
@@ -311,9 +309,12 @@ class FhemMcpServer:
         password: str | None = None,
         ca_file: str | None = None,
         ca_path: str | None = None,
+        enforce_cfg_suffix: bool = True,
     ) -> str:
         self._validate_live_base_url(base_url)
-        target_cfg = self._validate_live_cfg_token(config_path)
+        target_cfg = self._validate_live_edit_token(config_path, "config_path")
+        if enforce_cfg_suffix and not target_cfg.endswith(".cfg"):
+            raise ValueError("config_path must end with .cfg")
         if timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be > 0")
 
@@ -431,15 +432,18 @@ class FhemMcpServer:
         if until is not None:
             datetime.strptime(until, "%Y-%m-%d %H:%M:%S")
 
+        target_log = self._validate_live_edit_token(log_path, "log_path")
+
         raw = self.read_live_config_http(
             base_url=base_url,
-            config_path=log_path,
+            config_path=target_log,
             fwcsrf=fwcsrf,
             timeout_seconds=timeout_seconds,
             username=username,
             password=password,
             ca_file=ca_file,
             ca_path=ca_path,
+            enforce_cfg_suffix=False,
         )
         return self._filter_log_lines(raw, contains, regex, since, until, max_lines, ignore_case)
 
