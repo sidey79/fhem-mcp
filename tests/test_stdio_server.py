@@ -27,7 +27,7 @@ def test_initialize_and_list_tools() -> None:
 
     tools = responses[1]["result"]["tools"]
     names = {tool["name"] for tool in tools}
-    assert {"list_config_files", "read_config_file", "list_devices", "get_device", "list_groups", "list_rooms", "find_devices_by_attr", "list_config_summary"}.issubset(names)
+    assert {"list_config_files", "read_config_file", "read_live_config_http", "list_devices", "get_device", "list_groups", "list_rooms", "find_devices_by_attr", "list_config_summary"}.issubset(names)
 
 
 def test_tools_call_roundtrip() -> None:
@@ -198,3 +198,82 @@ def test_initialize_falls_back_for_unsupported_protocol_version() -> None:
     )
 
     assert responses[0]["result"]["protocolVersion"] == "2025-06-18"
+
+
+def test_tools_list_includes_read_live_log_http() -> None:
+    responses = _run_server_lines(
+        [{"jsonrpc": "2.0", "id": 61, "method": "tools/list", "params": {}}],
+        config_root=Path("tests/fixtures"),
+    )
+
+    tools = responses[0]["result"]["tools"]
+    names = {tool["name"] for tool in tools}
+    assert "read_live_log_http" in names
+
+
+def test_tools_call_read_live_log_http_roundtrip() -> None:
+    server = StdioMcpServer(config_root=Path("tests/fixtures"))
+    server.backend.read_live_log_http = lambda *args, **kwargs: "2026.05.25 12:00:00 1: test"
+
+    inp = io.StringIO(
+        json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 62,
+                "method": "tools/call",
+                "params": {"name": "read_live_log_http", "arguments": {"base_url": "https://zeus:8088/fhem"}},
+            }
+        )
+        + "\n"
+    )
+    out = io.StringIO()
+    server.run(inp, out)
+
+    response = json.loads(out.getvalue().strip())
+    payload = json.loads(response["result"]["content"][0]["text"])
+    assert payload == "2026.05.25 12:00:00 1: test"
+
+
+
+def test_tools_call_list_live_logs_http_roundtrip() -> None:
+    server = StdioMcpServer(config_root=Path("tests/fixtures"))
+    server.backend.list_live_logs_http = lambda *args, **kwargs: {"devices": [], "log_patterns": [], "current_logfiles": []}
+
+    inp = io.StringIO(
+        json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 63,
+                "method": "tools/call",
+                "params": {"name": "list_live_logs_http", "arguments": {"base_url": "https://zeus:8088/fhem"}},
+            }
+        )
+        + "\n"
+    )
+    out = io.StringIO()
+    server.run(inp, out)
+
+    response = json.loads(out.getvalue().strip())
+    payload = json.loads(response["result"]["content"][0]["text"])
+    assert payload == {"devices": [], "log_patterns": [], "current_logfiles": []}
+
+
+
+def test_tools_call_read_live_log_http_invalid_regex_returns_iserror() -> None:
+    responses = _run_server_lines(
+        [
+            {
+                "jsonrpc": "2.0",
+                "id": 64,
+                "method": "tools/call",
+                "params": {
+                    "name": "read_live_log_http",
+                    "arguments": {"base_url": "https://zeus:8088/fhem", "regex": "("},
+                },
+            }
+        ],
+        config_root=Path("tests/fixtures"),
+    )
+
+    assert responses[0]["result"]["isError"] is True
+    assert "invalid regex" in responses[0]["result"]["content"][0]["text"]

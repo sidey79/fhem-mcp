@@ -1,7 +1,15 @@
 from __future__ import annotations
 
+from base64 import b64encode
+from html import unescape
+import json
+from ssl import SSLContext, create_default_context
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
+from urllib.parse import ParseResult, quote_plus, urlparse
+import re
+from urllib.request import Request, urlopen
 from typing import Literal
 
 from .models import FhemAttribute, FhemDevice
@@ -236,6 +244,328 @@ class FhemMcpServer:
         file_path = self._resolve_in_root(relative_path)
         self._ensure_cfg_file(file_path)
         return file_path.read_text(encoding="utf-8")
+
+    @staticmethod
+    def _validate_live_base_url(base_url: str) -> ParseResult:
+        parsed = urlparse(base_url)
+        if parsed.scheme not in {"http", "https"}:
+            raise ValueError("base_url must use http or https")
+        if not parsed.netloc:
+            raise ValueError("base_url must include host")
+        if parsed.query:
+            raise ValueError("base_url must not include query parameters")
+        if parsed.fragment:
+            raise ValueError("base_url must not include fragment")
+        return parsed
+
+    @staticmethod
+    def _validate_live_edit_token(path_value: str, field_name: str) -> str:
+        candidate = path_value.strip()
+        if not candidate:
+            raise ValueError(f"{field_name} must not be empty")
+        banned = {"\n", "\r", "\t", ";", "|", "&", "`", "$", ">", "<"}
+        if any(ch in candidate for ch in banned):
+            raise ValueError(f"{field_name} contains unsupported characters")
+        return candidate
+
+    @staticmethod
+    def _build_tls_context(ca_file: str | None, ca_path: str | None) -> SSLContext | None:
+        if ca_file is not None and not ca_file.strip():
+            raise ValueError("ca_file must not be empty")
+        if ca_path is not None and not ca_path.strip():
+            raise ValueError("ca_path must not be empty")
+        if ca_file is None and ca_path is None:
+            return None
+        return create_default_context(cafile=ca_file, capath=ca_path)
+
+    def _fetch_fwcsrf_http(
+        self,
+        base_url: str,
+        timeout_seconds: float,
+        username: str | None,
+        password: str | None,
+        ssl_context: SSLContext | None,
+    ) -> str:
+        separator = "&" if "?" in base_url else "?"
+        token_url = f"{base_url}{separator}XHR=1"
+        request = Request(token_url, method="GET")
+        if username is not None and password is not None:
+            auth = b64encode(f"{username}:{password}".encode("utf-8")).decode("ascii")
+            request.add_header("Authorization", f"Basic {auth}")
+
+        if ssl_context is None:
+            response_ctx = urlopen(request, timeout=timeout_seconds)
+        else:
+            response_ctx = urlopen(request, timeout=timeout_seconds, context=ssl_context)
+        with response_ctx as response:
+            token = response.headers.get("X-FHEM-csrfToken")
+
+        if token is None or not token.strip():
+            return ""
+        return token.strip()
+
+    @staticmethod
+    def _build_live_request(base_url: str, query_parts: list[str]) -> str:
+        separator = "&" if "?" in base_url else "?"
+        return f"{base_url}{separator}{'&'.join(query_parts)}"
+
+    @staticmethod
+    def _request_with_optional_auth(request: Request, username: str | None, password: str | None) -> None:
+        if username is not None and password is not None:
+            auth = b64encode(f"{username}:{password}".encode("utf-8")).decode("ascii")
+            request.add_header("Authorization", f"Basic {auth}")
+
+    def _http_get_text(
+        self,
+        request_url: str,
+        timeout_seconds: float,
+        username: str | None,
+        password: str | None,
+        ssl_context: SSLContext | None,
+    ) -> str:
+        request = Request(request_url, method="GET")
+        self._request_with_optional_auth(request, username, password)
+        if ssl_context is None:
+            response_ctx = urlopen(request, timeout=timeout_seconds)
+        else:
+            response_ctx = urlopen(request, timeout=timeout_seconds, context=ssl_context)
+        with response_ctx as response:
+            payload = response.read()
+        return payload.decode("utf-8", errors="replace")
+
+    def read_live_config_http(
+        self,
+        base_url: str,
+        config_path: str = "fhem.cfg",
+        fwcsrf: str | None = None,
+        timeout_seconds: float = 5.0,
+        username: str | None = None,
+        password: str | None = None,
+        ca_file: str | None = None,
+        ca_path: str | None = None,
+        enforce_cfg_suffix: bool = True,
+    ) -> str:
+        self._validate_live_base_url(base_url)
+        target_cfg = self._validate_live_edit_token(config_path, "config_path")
+        if enforce_cfg_suffix and not target_cfg.endswith(".cfg"):
+            raise ValueError("config_path must end with .cfg")
+        if timeout_seconds <= 0:
+            raise ValueError("timeout_seconds must be > 0")
+
+        if (username is None) != (password is None):
+            raise ValueError("username and password must be provided together")
+
+        ssl_context = self._build_tls_context(ca_file, ca_path)
+        token = fwcsrf if fwcsrf is not None else self._fetch_fwcsrf_http(base_url, timeout_seconds, username, password, ssl_context)
+
+        cmd = f"style edit {target_cfg}"
+        query_parts = [f"cmd={quote_plus(cmd)}"]
+        if token:
+            query_parts.append(f"fwcsrf={quote_plus(token)}")
+        request_url = self._build_live_request(base_url, query_parts)
+
+        decoded = self._http_get_text(request_url, timeout_seconds, username, password, ssl_context)
+        match = re.search(r"<textarea[^>]*>(.*?)</textarea>", decoded, flags=re.IGNORECASE | re.DOTALL)
+        if match is not None:
+            return unescape(match.group(1))
+        return decoded
+
+    @staticmethod
+    def _parse_log_timestamp(line: str) -> datetime | None:
+        if len(line) < 19:
+            return None
+        stamp = line[:19]
+        try:
+            return datetime.strptime(stamp, "%Y.%m.%d %H:%M:%S")
+        except ValueError:
+            return None
+
+    @staticmethod
+    def _filter_log_lines(
+        content: str,
+        contains: str | None,
+        regex: str | None,
+        since: str | None,
+        until: str | None,
+        max_lines: int | None,
+        ignore_case: bool,
+    ) -> str:
+        lines = content.splitlines()
+        out: list[str] = []
+
+        since_dt = datetime.strptime(since, "%Y-%m-%d %H:%M:%S") if since else None
+        until_dt = datetime.strptime(until, "%Y-%m-%d %H:%M:%S") if until else None
+
+        regex_obj = None
+        if regex:
+            flags = re.IGNORECASE if ignore_case else 0
+            try:
+                regex_obj = re.compile(regex, flags=flags)
+            except re.error as exc:
+                raise ValueError(f"invalid regex: {exc}") from exc
+
+        needle = contains.lower() if (contains and ignore_case) else contains
+
+        for line in lines:
+            ts = FhemMcpServer._parse_log_timestamp(line)
+            if since_dt is not None and (ts is None or ts < since_dt):
+                continue
+            if until_dt is not None and (ts is None or ts > until_dt):
+                continue
+
+            if needle:
+                hay = line.lower() if ignore_case else line
+                if needle not in hay:
+                    continue
+
+            if regex_obj and not regex_obj.search(line):
+                continue
+
+            out.append(line)
+
+        if max_lines is not None:
+            if max_lines == 0:
+                return ""
+            if max_lines > 0:
+                out = out[-max_lines:]
+
+        return "\n".join(out)
+
+    def list_live_logs_http(
+        self,
+        base_url: str,
+        fwcsrf: str | None = None,
+        timeout_seconds: float = 5.0,
+        username: str | None = None,
+        password: str | None = None,
+        ca_file: str | None = None,
+        ca_path: str | None = None,
+    ) -> dict[str, object]:
+        self._validate_live_base_url(base_url)
+        if timeout_seconds <= 0:
+            raise ValueError("timeout_seconds must be > 0")
+        if (username is None) != (password is None):
+            raise ValueError("username and password must be provided together")
+
+        ssl_context = self._build_tls_context(ca_file, ca_path)
+        token = fwcsrf if fwcsrf is not None else self._fetch_fwcsrf_http(base_url, timeout_seconds, username, password, ssl_context)
+
+        query_parts = [f"cmd={quote_plus('jsonlist2 TYPE=FileLog')}", "XHR=1"]
+        if token:
+            query_parts.append(f"fwcsrf={quote_plus(token)}")
+        request_url = self._build_live_request(base_url, query_parts)
+        decoded = self._http_get_text(request_url, timeout_seconds, username, password, ssl_context)
+
+        try:
+            payload = json.loads(decoded)
+        except json.JSONDecodeError:
+            match = re.search(r"(\{.*\})", decoded, flags=re.DOTALL)
+            if match is None:
+                raise ValueError("Unable to parse jsonlist2 FileLog response as JSON")
+            try:
+                payload = json.loads(match.group(1))
+            except json.JSONDecodeError as exc:
+                raise ValueError("Unable to parse jsonlist2 FileLog response as JSON") from exc
+
+        results = payload.get("Results") if isinstance(payload, dict) else None
+        if not isinstance(results, list):
+            raise ValueError("Unexpected jsonlist2 FileLog response format")
+
+        devices: list[dict[str, str | None]] = []
+        log_patterns: list[str] = []
+        current_logfiles: list[str] = []
+
+        for item in results:
+            if not isinstance(item, dict):
+                continue
+            name = item.get("Name")
+            if not isinstance(name, str):
+                continue
+
+            definition = item.get("DEF")
+            def_logfile: str | None = None
+            if isinstance(definition, str):
+                parts = definition.split()
+                if parts:
+                    def_logfile = parts[0]
+
+            internals = item.get("Internals")
+            current_logfile: str | None = None
+            if isinstance(internals, dict):
+                for key in ("currentlogfile", "CURRENTLOGFILE", "logfile", "LOGFILE"):
+                    value = internals.get(key)
+                    if isinstance(value, str) and value.strip():
+                        current_logfile = value.strip()
+                        break
+
+            devices.append(
+                {
+                    "device": name,
+                    "def_logfile": def_logfile,
+                    "current_logfile": current_logfile,
+                }
+            )
+            if def_logfile and def_logfile not in log_patterns:
+                log_patterns.append(def_logfile)
+            if current_logfile and current_logfile not in current_logfiles:
+                current_logfiles.append(current_logfile)
+
+        return {
+            "devices": devices,
+            "log_patterns": log_patterns,
+            "current_logfiles": current_logfiles,
+        }
+
+    def read_live_log_http(
+        self,
+        base_url: str,
+        log_path: str = "./log/fhem-%Y-%m-%d.log",
+        fwcsrf: str | None = None,
+        timeout_seconds: float = 5.0,
+        username: str | None = None,
+        password: str | None = None,
+        ca_file: str | None = None,
+        ca_path: str | None = None,
+        contains: str | None = None,
+        regex: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        max_lines: int | None = 500,
+        ignore_case: bool = False,
+    ) -> str:
+        if not log_path.strip():
+            raise ValueError("log_path must not be empty")
+        if timeout_seconds <= 0:
+            raise ValueError("timeout_seconds must be > 0")
+        if (username is None) != (password is None):
+            raise ValueError("username and password must be provided together")
+        if max_lines is not None and max_lines < 0:
+            raise ValueError("max_lines must be >= 0")
+        if since is not None:
+            datetime.strptime(since, "%Y-%m-%d %H:%M:%S")
+        if until is not None:
+            datetime.strptime(until, "%Y-%m-%d %H:%M:%S")
+        if regex:
+            flags = re.IGNORECASE if ignore_case else 0
+            try:
+                re.compile(regex, flags=flags)
+            except re.error as exc:
+                raise ValueError(f"invalid regex: {exc}") from exc
+
+        target_log = self._validate_live_edit_token(log_path, "log_path")
+
+        raw = self.read_live_config_http(
+            base_url=base_url,
+            config_path=target_log,
+            fwcsrf=fwcsrf,
+            timeout_seconds=timeout_seconds,
+            username=username,
+            password=password,
+            ca_file=ca_file,
+            ca_path=ca_path,
+            enforce_cfg_suffix=False,
+        )
+        return self._filter_log_lines(raw, contains, regex, since, until, max_lines, ignore_case)
 
     def list_devices(self, relative_path: str) -> list[dict[str, object]]:
         file_path = self._resolve_in_root(relative_path)

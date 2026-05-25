@@ -60,9 +60,50 @@ class GetDeviceFullArgs(StrictModel):
     device_name: str
 
 
+class ReadLiveConfigHttpArgs(StrictModel):
+    base_url: str
+    config_path: str = "fhem.cfg"
+    fwcsrf: str | None = None
+    timeout_seconds: float = 5.0
+    username: str | None = None
+    password: str | None = None
+    ca_file: str | None = None
+    ca_path: str | None = None
+
+
+class ReadLiveLogHttpArgs(StrictModel):
+    base_url: str
+    log_path: str = "./log/fhem-%Y-%m-%d.log"
+    fwcsrf: str | None = None
+    timeout_seconds: float = 5.0
+    username: str | None = None
+    password: str | None = None
+    ca_file: str | None = None
+    ca_path: str | None = None
+    contains: str | None = None
+    regex: str | None = None
+    since: str | None = None
+    until: str | None = None
+    max_lines: int | None = 500
+    ignore_case: bool = False
+
+
+class ListLiveLogsHttpArgs(StrictModel):
+    base_url: str
+    fwcsrf: str | None = None
+    timeout_seconds: float = 5.0
+    username: str | None = None
+    password: str | None = None
+    ca_file: str | None = None
+    ca_path: str | None = None
+
+
 TOOL_DEFINITIONS: dict[str, tuple[str, type[BaseModel]]] = {
     "list_config_files": ("List all .cfg files under config root", EmptyArgs),
     "read_config_file": ("Read one config file", RelativePathArgs),
+    "read_live_config_http": ("Read one live FHEM config via HTTP cmd=style edit", ReadLiveConfigHttpArgs),
+    "read_live_log_http": ("Read live FHEM log via HTTP with optional filters", ReadLiveLogHttpArgs),
+    "list_live_logs_http": ("List live FHEM logs via HTTP jsonlist2 TYPE=FileLog", ListLiveLogsHttpArgs),
     "list_devices": ("List parsed devices from one config file", RelativePathArgs),
     "get_device": ("Get one parsed device from one config file", DeviceArgs),
     "list_groups": ("List group attribute values to devices", ListGroupsArgs),

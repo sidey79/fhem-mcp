@@ -215,6 +215,44 @@ class StdioMcpServer:
             payload = self.backend.read_config_file(arguments["relative_path"])
         elif tool_name == "list_devices":
             payload = self.backend.list_devices(arguments["relative_path"])
+        elif tool_name == "read_live_config_http":
+            payload = self.backend.read_live_config_http(
+                arguments["base_url"],
+                arguments.get("config_path", "fhem.cfg"),
+                arguments.get("fwcsrf"),
+                arguments.get("timeout_seconds", 5.0),
+                arguments.get("username"),
+                arguments.get("password"),
+                arguments.get("ca_file"),
+                arguments.get("ca_path"),
+            )
+        elif tool_name == "read_live_log_http":
+            payload = self.backend.read_live_log_http(
+                arguments["base_url"],
+                arguments.get("log_path", "./log/fhem-%Y-%m-%d.log"),
+                arguments.get("fwcsrf"),
+                arguments.get("timeout_seconds", 5.0),
+                arguments.get("username"),
+                arguments.get("password"),
+                arguments.get("ca_file"),
+                arguments.get("ca_path"),
+                arguments.get("contains"),
+                arguments.get("regex"),
+                arguments.get("since"),
+                arguments.get("until"),
+                arguments.get("max_lines", 500),
+                arguments.get("ignore_case", False),
+            )
+        elif tool_name == "list_live_logs_http":
+            payload = self.backend.list_live_logs_http(
+                arguments["base_url"],
+                arguments.get("fwcsrf"),
+                arguments.get("timeout_seconds", 5.0),
+                arguments.get("username"),
+                arguments.get("password"),
+                arguments.get("ca_file"),
+                arguments.get("ca_path"),
+            )
         elif tool_name == "get_device":
             payload = self.backend.get_device(arguments["relative_path"], arguments["device_name"])
         elif tool_name == "list_groups":

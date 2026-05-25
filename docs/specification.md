@@ -12,6 +12,9 @@ Source View + Runtime View + Sandbox Validation.
 ## Phase 1 tools
 - list_config_files
 - read_config_file
+- read_live_config_http(base_url, config_path?, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?)
+- read_live_log_http(base_url, log_path?, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?, contains?, regex?, since?, until?, max_lines?, ignore_case?)
+- list_live_logs_http(base_url, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?)
 - list_devices
 - get_device
 - list_groups(relative_path?, group_name?)
@@ -26,7 +29,7 @@ Source View + Runtime View + Sandbox Validation.
 - get_device_full(device_name)
 
 ## Phase 2+ tools
-- Runtime View queries (jsonlist2, HTTP/Telnet adapters)
+- Runtime View queries (jsonlist2/Telnet adapters and extended live tools)
 - get_device_state
 - get_readings
 - find_references
