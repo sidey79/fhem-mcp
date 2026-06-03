@@ -719,11 +719,31 @@ def test_observe_live_events_http_rejects_invalid_inputs() -> None:
 
 
 
-def test_observe_live_events_http_read_timeout_returns_partial_result() -> None:
+def test_observe_live_events_http_read_timeout_keeps_observing_until_deadline() -> None:
     server = FhemMcpServer(config_root=Path("tests/fixtures"))
 
-    class _TimeoutResp:
+    class _Sock:
+        def __init__(self) -> None:
+            self.timeouts: list[float] = []
+
+        def settimeout(self, timeout: float) -> None:
+            self.timeouts.append(timeout)
+
+    class _Raw:
+        def __init__(self, sock: _Sock) -> None:
+            self._sock = sock
+
+    class _Fp:
+        def __init__(self, sock: _Sock) -> None:
+            self.raw = _Raw(sock)
+
+    class _IntermittentResp:
         headers: dict[str, str] = {}
+
+        def __init__(self) -> None:
+            self.sock = _Sock()
+            self.fp = _Fp(self.sock)
+            self.calls = 0
 
         def __enter__(self):
             return self
@@ -732,15 +752,27 @@ def test_observe_live_events_http_read_timeout_returns_partial_result() -> None:
             return False
 
         def readline(self):
-            raise TimeoutError("no matching events")
+            self.calls += 1
+            if self.calls == 1:
+                raise TimeoutError("idle stream")
+            if self.calls == 2:
+                return b'["dummy","lamp","state: on"]\n'
+            return b""
 
-    with patch("fhem_mcp.server.urlopen", return_value=_TimeoutResp()):
-        result = server.observe_live_events_http(
-            base_url="http://127.0.0.1:8083/fhem",
-            duration_seconds=10,
-            event_monitor_filter="rareDevice",
-        )
+    response = _IntermittentResp()
+    monotonic_values = [0.0, 0.0, 3.0, 3.0, 3.0, 3.0]
 
-    assert result["event_count"] == 0
+    with patch("fhem_mcp.server.urlopen", return_value=response) as mocked_urlopen:
+        with patch("fhem_mcp.server.monotonic", side_effect=monotonic_values):
+            result = server.observe_live_events_http(
+                base_url="http://127.0.0.1:8083/fhem",
+                duration_seconds=10,
+                timeout_seconds=5,
+                event_monitor_filter="rareDevice",
+            )
+
+    assert mocked_urlopen.call_args.kwargs["timeout"] == 5
+    assert response.sock.timeouts[:2] == [10.0, 7.0]
+    assert result["event_count"] == 1
+    assert result["events"][0]["device"] == "lamp"
     assert result["truncated"] is False
-    assert result["events"] == []

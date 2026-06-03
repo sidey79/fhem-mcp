@@ -422,6 +422,14 @@ class FhemMcpServer:
             return False
 
     @staticmethod
+    def _set_response_read_timeout(response: object, timeout_seconds: float) -> None:
+        fp = getattr(response, "fp", None)
+        raw = getattr(fp, "raw", None)
+        sock = getattr(raw, "_sock", None)
+        if sock is not None and hasattr(sock, "settimeout"):
+            sock.settimeout(timeout_seconds)
+
+    @staticmethod
     def _serialize_event(event: FhemEvent) -> dict[str, str | None]:
         return {
             "device": event.device,
@@ -494,19 +502,23 @@ class FhemMcpServer:
         deadline = monotonic() + duration_seconds
         events: list[FhemEvent] = []
         truncated = False
-        read_timeout = min(timeout_seconds, float(duration_seconds))
-
         if ssl_context is None:
-            response_ctx = urlopen(request, timeout=read_timeout)
+            response_ctx = urlopen(request, timeout=timeout_seconds)
         else:
-            response_ctx = urlopen(request, timeout=read_timeout, context=ssl_context)
+            response_ctx = urlopen(request, timeout=timeout_seconds, context=ssl_context)
 
         with response_ctx as response:
-            while monotonic() < deadline:
+            while True:
+                remaining = deadline - monotonic()
+                if remaining <= 0:
+                    break
+                self._set_response_read_timeout(response, remaining)
                 try:
                     raw = response.readline()
                 except (TimeoutError, SocketTimeout):
-                    break
+                    if monotonic() >= deadline:
+                        break
+                    continue
                 if raw in (b"", ""):
                     break
                 if isinstance(raw, bytes):
