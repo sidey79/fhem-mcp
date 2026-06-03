@@ -34,3 +34,13 @@ class PatchProposal:
     description: str
     unified_diff: str
     reversible: bool = True
+
+
+@dataclass(frozen=True)
+class FhemEvent:
+    raw: str
+    device: str | None
+    event: str
+    device_type: str | None = None
+    reading: str | None = None
+    value: str | None = None

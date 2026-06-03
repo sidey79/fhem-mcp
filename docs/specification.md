@@ -15,6 +15,7 @@ Source View + Runtime View + Sandbox Validation.
 - read_live_config_http(base_url, config_path?, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?)
 - read_live_log_http(base_url, log_path?, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?, contains?, regex?, since?, until?, max_lines?, ignore_case?)
 - list_live_logs_http(base_url, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?)
+- observe_live_events_http(base_url, duration_seconds?, event_monitor_filter?, device_regex?, event_regex?, max_events?, timeout_seconds?, username?, password?, ca_file?, ca_path?)
 - list_devices
 - get_device
 - list_groups(relative_path?, group_name?)

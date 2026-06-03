@@ -277,3 +277,41 @@ def test_tools_call_read_live_log_http_invalid_regex_returns_iserror() -> None:
 
     assert responses[0]["result"]["isError"] is True
     assert "invalid regex" in responses[0]["result"]["content"][0]["text"]
+
+
+
+def test_tools_list_includes_observe_live_events_http() -> None:
+    responses = _run_server_lines(
+        [{"jsonrpc": "2.0", "id": 71, "method": "tools/list", "params": {}}],
+        config_root=Path("tests/fixtures"),
+    )
+
+    tools = responses[0]["result"]["tools"]
+    names = {tool["name"] for tool in tools}
+    assert "observe_live_events_http" in names
+
+
+def test_tools_call_observe_live_events_http_roundtrip() -> None:
+    server = StdioMcpServer(config_root=Path("tests/fixtures"))
+    server.backend.observe_live_events_http = lambda *args, **kwargs: {"event_count": 1, "events": []}
+
+    inp = io.StringIO(
+        json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 72,
+                "method": "tools/call",
+                "params": {
+                    "name": "observe_live_events_http",
+                    "arguments": {"base_url": "https://zeus:8088/fhem", "duration_seconds": 1},
+                },
+            }
+        )
+        + "\n"
+    )
+    out = io.StringIO()
+    server.run(inp, out)
+
+    response = json.loads(out.getvalue().strip())
+    payload = json.loads(response["result"]["content"][0]["text"])
+    assert payload == {"event_count": 1, "events": []}
