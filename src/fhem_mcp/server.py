@@ -410,16 +410,13 @@ class FhemMcpServer:
 
     @staticmethod
     def _looks_like_event_date(date_part: str, time_part: str) -> bool:
-        try:
-            datetime.strptime(f"{date_part} {time_part}", "%Y-%m-%d %H:%M:%S")
-            return True
-        except ValueError:
-            pass
-        try:
-            datetime.strptime(f"{date_part} {time_part}", "%Y.%m.%d %H:%M:%S")
-            return True
-        except ValueError:
-            return False
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M:%S.%f", "%Y.%m.%d %H:%M:%S", "%Y.%m.%d %H:%M:%S.%f"):
+            try:
+                datetime.strptime(f"{date_part} {time_part}", fmt)
+                return True
+            except ValueError:
+                continue
+        return False
 
     @staticmethod
     def _set_response_read_timeout(response: object, timeout_seconds: float) -> None:

@@ -653,6 +653,17 @@ def test_observe_live_events_http_reads_bounded_event_stream() -> None:
     assert request.get_header("Authorization").startswith("Basic ")
 
 
+
+def test_observe_live_events_http_parses_millisecond_timestamps() -> None:
+    event = FhemMcpServer._parse_event_payload("2026-06-03 12:00:01.123 dummy lamp state: on")
+
+    assert event.device_type == "dummy"
+    assert event.device == "lamp"
+    assert event.reading == "state"
+    assert event.value == "on"
+    assert event.event == "state: on"
+
+
 def test_observe_live_events_http_filters_and_truncates() -> None:
     server = FhemMcpServer(config_root=Path("tests/fixtures"))
 
