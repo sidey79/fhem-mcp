@@ -261,6 +261,7 @@ class StdioMcpServer:
                 arguments.get("device_regex"),
                 arguments.get("event_regex"),
                 arguments.get("max_events", 500),
+                arguments.get("fwcsrf"),
                 arguments.get("timeout_seconds", 5.0),
                 arguments.get("username"),
                 arguments.get("password"),

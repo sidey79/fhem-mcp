@@ -468,6 +468,7 @@ class FhemMcpServer:
         device_regex: str | None = None,
         event_regex: str | None = None,
         max_events: int = 500,
+        fwcsrf: str | None = None,
         timeout_seconds: float = 5.0,
         username: str | None = None,
         password: str | None = None,
@@ -487,11 +488,14 @@ class FhemMcpServer:
         device_pattern = self._compile_optional_regex(device_regex, "device_regex")
         event_pattern = self._compile_optional_regex(event_regex, "event_regex")
         ssl_context = self._build_tls_context(ca_file, ca_path)
+        token = fwcsrf if fwcsrf is not None else self._fetch_fwcsrf_http(base_url, timeout_seconds, username, password, ssl_context)
 
         query_parts = [
             "XHR=1",
             f"inform={quote_plus(f'type=raw;filter={event_monitor_filter};fmt=JSON')}",
         ]
+        if token:
+            query_parts.append(f"fwcsrf={quote_plus(token)}")
         request_url = self._build_live_request(base_url, query_parts)
         request = Request(request_url, method="GET")
         self._request_with_optional_auth(request, username, password)

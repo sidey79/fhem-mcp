@@ -64,6 +64,7 @@ def _build_parser() -> argparse.ArgumentParser:
     observe_events.add_argument("--device-regex", default=None, help="Optional local device regex filter")
     observe_events.add_argument("--event-regex", default=None, help="Optional local event regex filter")
     observe_events.add_argument("--max-events", type=int, default=500, help="Maximum events to return, 1-5000")
+    observe_events.add_argument("--fwcsrf", default=None, help="Optional FHEM CSRF token (otherwise fetched dynamically)")
     observe_events.add_argument("--timeout-seconds", type=float, default=5.0, help="HTTP read timeout in seconds")
     observe_events.add_argument("--username", default=None, help="Optional basic auth username")
     observe_events.add_argument("--password", default=None, help="Optional basic auth password")
@@ -169,6 +170,7 @@ def main() -> None:
             args.device_regex,
             args.event_regex,
             args.max_events,
+            args.fwcsrf,
             args.timeout_seconds,
             args.username,
             args.password,

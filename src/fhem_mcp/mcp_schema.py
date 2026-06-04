@@ -105,6 +105,7 @@ class ObserveLiveEventsHttpArgs(StrictModel):
     device_regex: str | None = None
     event_regex: str | None = None
     max_events: int = 500
+    fwcsrf: str | None = None
     timeout_seconds: float = 5.0
     username: str | None = None
     password: str | None = None

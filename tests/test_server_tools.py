@@ -603,6 +603,15 @@ def test_list_live_logs_http_parses_filelog_jsonlist2() -> None:
 def test_observe_live_events_http_reads_bounded_event_stream() -> None:
     server = FhemMcpServer(config_root=Path("tests/fixtures"))
 
+    class _TokenResp:
+        headers = {"X-FHEM-csrfToken": "csrf_123"}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
     class _StreamResp:
         headers: dict[str, str] = {}
 
@@ -626,7 +635,7 @@ def test_observe_live_events_http_reads_bounded_event_stream() -> None:
         b'2026-06-03 12:00:01 dummy button pressed<br>\n',
     ]
 
-    with patch("fhem_mcp.server.urlopen", return_value=_StreamResp(lines)) as mocked_urlopen:
+    with patch("fhem_mcp.server.urlopen", side_effect=[_TokenResp(), _StreamResp(lines)]) as mocked_urlopen:
         result = server.observe_live_events_http(
             base_url="https://zeus:8088/fhem",
             duration_seconds=10,
@@ -646,10 +655,14 @@ def test_observe_live_events_http_reads_bounded_event_stream() -> None:
     assert result["events"][2]["device"] == "button"
     assert result["events"][2]["event"] == "pressed"
 
-    request = mocked_urlopen.call_args.args[0]
+    token_request = mocked_urlopen.call_args_list[0].args[0]
+    request = mocked_urlopen.call_args_list[1].args[0]
+    assert token_request.full_url.endswith("?XHR=1")
     assert request.full_url.startswith("https://zeus:8088/fhem?")
     assert "XHR=1" in request.full_url
     assert "inform=type%3Draw%3Bfilter%3DTYPE%3Ddummy%3Bfmt%3DJSON" in request.full_url
+    assert "fwcsrf=csrf_123" in request.full_url
+    assert token_request.get_header("Authorization").startswith("Basic ")
     assert request.get_header("Authorization").startswith("Basic ")
 
 
@@ -696,6 +709,7 @@ def test_observe_live_events_http_filters_and_truncates() -> None:
             device_regex="^lamp$",
             event_regex="^state:",
             max_events=1,
+            fwcsrf="",
         )
 
     assert result["event_count"] == 1
@@ -780,6 +794,7 @@ def test_observe_live_events_http_read_timeout_keeps_observing_until_deadline() 
                 duration_seconds=10,
                 timeout_seconds=5,
                 event_monitor_filter="rareDevice",
+                fwcsrf="",
             )
 
     assert mocked_urlopen.call_args.kwargs["timeout"] == 5
