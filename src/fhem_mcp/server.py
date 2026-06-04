@@ -438,6 +438,14 @@ class FhemMcpServer:
         }
 
     @staticmethod
+    def _build_raw_event_monitor_filter(event_monitor_filter: str) -> str:
+        candidate = event_monitor_filter.strip()
+        match = re.fullmatch(r"TYPE=([^\s]+)", candidate)
+        if match is not None:
+            return rf"^\S+\s+\S+\s+{re.escape(match.group(1))}\s+"
+        return candidate
+
+    @staticmethod
     def _summarize_events(events: list[FhemEvent]) -> dict[str, dict[str, int]]:
         devices: dict[str, int] = {}
         readings: dict[str, int] = {}
@@ -484,6 +492,7 @@ class FhemMcpServer:
             raise ValueError("username and password must be provided together")
         if not event_monitor_filter.strip():
             raise ValueError("event_monitor_filter must not be empty")
+        raw_event_monitor_filter = self._build_raw_event_monitor_filter(event_monitor_filter)
 
         device_pattern = self._compile_optional_regex(device_regex, "device_regex")
         event_pattern = self._compile_optional_regex(event_regex, "event_regex")
@@ -492,7 +501,7 @@ class FhemMcpServer:
 
         query_parts = [
             "XHR=1",
-            f"inform={quote_plus(f'type=raw;filter={event_monitor_filter};fmt=JSON')}",
+            f"inform={quote_plus(f'type=raw;filter={raw_event_monitor_filter};fmt=JSON')}",
         ]
         if token:
             query_parts.append(f"fwcsrf={quote_plus(token)}")

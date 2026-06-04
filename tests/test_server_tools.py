@@ -1,5 +1,6 @@
 from pathlib import Path
 from unittest.mock import patch
+from urllib.parse import unquote_plus
 
 from fhem_mcp.server import FhemMcpServer
 
@@ -660,12 +661,16 @@ def test_observe_live_events_http_reads_bounded_event_stream() -> None:
     assert token_request.full_url.endswith("?XHR=1")
     assert request.full_url.startswith("https://zeus:8088/fhem?")
     assert "XHR=1" in request.full_url
-    assert "inform=type%3Draw%3Bfilter%3DTYPE%3Ddummy%3Bfmt%3DJSON" in request.full_url
+    assert "inform=type=raw;filter=^\\S+\\s+\\S+\\s+dummy\\s+;fmt=JSON" in unquote_plus(request.full_url)
     assert "fwcsrf=csrf_123" in request.full_url
     assert token_request.get_header("Authorization").startswith("Basic ")
     assert request.get_header("Authorization").startswith("Basic ")
 
 
+
+def test_observe_live_events_http_translates_type_filter_to_raw_regex() -> None:
+    assert FhemMcpServer._build_raw_event_monitor_filter("TYPE=MQTT2_DEVICE") == r"^\S+\s+\S+\s+MQTT2_DEVICE\s+"
+    assert FhemMcpServer._build_raw_event_monitor_filter("Lichtvoute") == "Lichtvoute"
 
 
 def test_observe_live_events_http_omits_fwcsrf_when_fhem_has_no_token() -> None:

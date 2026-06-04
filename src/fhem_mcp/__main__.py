@@ -60,7 +60,7 @@ def _build_parser() -> argparse.ArgumentParser:
     observe_events = sub.add_parser("observe_live_events_http", help="Observe FHEMWEB Event Monitor via bounded HTTP raw event longpoll")
     observe_events.add_argument("base_url", help="FHEM web endpoint, e.g. http://127.0.0.1:8083/fhem")
     observe_events.add_argument("--duration-seconds", type=int, default=10, help="Observation duration, 1-60 seconds")
-    observe_events.add_argument("--event-monitor-filter", default=".*", help="FHEM Event Monitor filter/devspec")
+    observe_events.add_argument("--event-monitor-filter", default=".*", help="FHEM raw event regex; TYPE=<type> is translated")
     observe_events.add_argument("--device-regex", default=None, help="Optional local device regex filter")
     observe_events.add_argument("--event-regex", default=None, help="Optional local event regex filter")
     observe_events.add_argument("--max-events", type=int, default=500, help="Maximum events to return, 1-5000")
