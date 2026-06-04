@@ -3,16 +3,18 @@ from __future__ import annotations
 from base64 import b64encode
 from html import unescape
 import json
+from socket import timeout as SocketTimeout
 from ssl import SSLContext, create_default_context
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from time import monotonic
 from urllib.parse import ParseResult, quote_plus, urlparse
 import re
 from urllib.request import Request, urlopen
 from typing import Literal
 
-from .models import FhemAttribute, FhemDevice
+from .models import FhemAttribute, FhemDevice, FhemEvent
 from .parser import FhemConfigParser, IncludeDirective
 
 
@@ -332,6 +334,231 @@ class FhemMcpServer:
         with response_ctx as response:
             payload = response.read()
         return payload.decode("utf-8", errors="replace")
+
+
+    @staticmethod
+    def _validate_observe_limit(name: str, value: int, minimum: int, maximum: int) -> None:
+        if value < minimum or value > maximum:
+            raise ValueError(f"{name} must be between {minimum} and {maximum}")
+
+    @staticmethod
+    def _compile_optional_regex(pattern: str | None, field_name: str) -> re.Pattern[str] | None:
+        if pattern is None:
+            return None
+        try:
+            return re.compile(pattern)
+        except re.error as exc:
+            raise ValueError(f"invalid {field_name}: {exc}") from exc
+
+    @staticmethod
+    def _parse_event_payload(raw_line: str) -> FhemEvent:
+        line = raw_line.strip()
+        if not line:
+            return FhemEvent(raw=raw_line, device=None, event="")
+
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            payload = None
+
+        if isinstance(payload, list) and len(payload) >= 3:
+            device_type = str(payload[0]) if payload[0] is not None else None
+            device = str(payload[1]) if payload[1] is not None else None
+            event = str(payload[2]) if payload[2] is not None else ""
+            reading, value = FhemMcpServer._split_event_reading(event)
+            return FhemEvent(raw=raw_line, device=device, event=event, device_type=device_type, reading=reading, value=value)
+
+        if isinstance(payload, dict):
+            device = FhemMcpServer._first_string_value(payload, ("device", "name", "NAME", "Device", "DEVICE"))
+            event = FhemMcpServer._first_string_value(payload, ("event", "EVENT", "state", "STATE", "reading")) or line
+            device_type = FhemMcpServer._first_string_value(payload, ("type", "TYPE", "device_type"))
+            reading, value = FhemMcpServer._split_event_reading(event)
+            return FhemEvent(raw=raw_line, device=device, event=event, device_type=device_type, reading=reading, value=value)
+
+        parts = line.split(maxsplit=3)
+        if len(parts) >= 4 and FhemMcpServer._looks_like_event_date(parts[0], parts[1]):
+            device_type = parts[2]
+            rest = parts[3].split(maxsplit=1)
+            device = rest[0] if rest else None
+            event = rest[1] if len(rest) > 1 else ""
+            reading, value = FhemMcpServer._split_event_reading(event)
+            return FhemEvent(raw=raw_line, device=device, event=event, device_type=device_type, reading=reading, value=value)
+
+        if len(parts) >= 3:
+            device_type = parts[0]
+            device = parts[1]
+            event = parts[2] if len(parts) == 3 else parts[2] + " " + parts[3]
+            reading, value = FhemMcpServer._split_event_reading(event)
+            return FhemEvent(raw=raw_line, device=device, event=event, device_type=device_type, reading=reading, value=value)
+
+        return FhemEvent(raw=raw_line, device=None, event=line)
+
+    @staticmethod
+    def _first_string_value(payload: dict[object, object], keys: tuple[str, ...]) -> str | None:
+        for key in keys:
+            value = payload.get(key)
+            if isinstance(value, str):
+                return value
+        return None
+
+    @staticmethod
+    def _split_event_reading(event: str) -> tuple[str | None, str | None]:
+        reading, sep, value = event.partition(": ")
+        if not sep or not reading:
+            return None, None
+        return reading, value
+
+    @staticmethod
+    def _looks_like_event_date(date_part: str, time_part: str) -> bool:
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M:%S.%f", "%Y.%m.%d %H:%M:%S", "%Y.%m.%d %H:%M:%S.%f"):
+            try:
+                datetime.strptime(f"{date_part} {time_part}", fmt)
+                return True
+            except ValueError:
+                continue
+        return False
+
+    @staticmethod
+    def _set_response_read_timeout(response: object, timeout_seconds: float) -> None:
+        fp = getattr(response, "fp", None)
+        raw = getattr(fp, "raw", None)
+        sock = getattr(raw, "_sock", None)
+        if sock is not None and hasattr(sock, "settimeout"):
+            sock.settimeout(timeout_seconds)
+
+    @staticmethod
+    def _serialize_event(event: FhemEvent) -> dict[str, str | None]:
+        return {
+            "device": event.device,
+            "device_type": event.device_type,
+            "reading": event.reading,
+            "value": event.value,
+            "event": event.event,
+            "raw": event.raw,
+        }
+
+    @staticmethod
+    def _build_raw_event_monitor_filter(event_monitor_filter: str) -> str:
+        candidate = event_monitor_filter.strip()
+        match = re.fullmatch(r"TYPE=([^\s]+)", candidate)
+        if match is not None:
+            return rf"^\S+\s+\S+\s+{re.escape(match.group(1))}\s+"
+        return candidate
+
+    @staticmethod
+    def _summarize_events(events: list[FhemEvent]) -> dict[str, dict[str, int]]:
+        devices: dict[str, int] = {}
+        readings: dict[str, int] = {}
+        event_types: dict[str, int] = {}
+
+        for event in events:
+            if event.device:
+                devices[event.device] = devices.get(event.device, 0) + 1
+            if event.reading:
+                readings[event.reading] = readings.get(event.reading, 0) + 1
+                event_types[event.reading] = event_types.get(event.reading, 0) + 1
+            else:
+                event_key = event.event.split(maxsplit=1)[0] if event.event else ""
+                if event_key:
+                    event_types[event_key] = event_types.get(event_key, 0) + 1
+
+        return {
+            "devices": dict(sorted(devices.items())),
+            "readings": dict(sorted(readings.items())),
+            "event_types": dict(sorted(event_types.items())),
+        }
+
+    def observe_live_events_http(
+        self,
+        base_url: str,
+        duration_seconds: int = 10,
+        event_monitor_filter: str = ".*",
+        device_regex: str | None = None,
+        event_regex: str | None = None,
+        max_events: int = 500,
+        fwcsrf: str | None = None,
+        timeout_seconds: float = 5.0,
+        username: str | None = None,
+        password: str | None = None,
+        ca_file: str | None = None,
+        ca_path: str | None = None,
+    ) -> dict[str, object]:
+        self._validate_live_base_url(base_url)
+        self._validate_observe_limit("duration_seconds", duration_seconds, 1, 60)
+        self._validate_observe_limit("max_events", max_events, 1, 5000)
+        if timeout_seconds <= 0:
+            raise ValueError("timeout_seconds must be > 0")
+        if (username is None) != (password is None):
+            raise ValueError("username and password must be provided together")
+        if not event_monitor_filter.strip():
+            raise ValueError("event_monitor_filter must not be empty")
+        raw_event_monitor_filter = self._build_raw_event_monitor_filter(event_monitor_filter)
+
+        device_pattern = self._compile_optional_regex(device_regex, "device_regex")
+        event_pattern = self._compile_optional_regex(event_regex, "event_regex")
+        ssl_context = self._build_tls_context(ca_file, ca_path)
+        token = fwcsrf if fwcsrf is not None else self._fetch_fwcsrf_http(base_url, timeout_seconds, username, password, ssl_context)
+
+        query_parts = [
+            "XHR=1",
+            f"inform={quote_plus(f'type=raw;filter={raw_event_monitor_filter};fmt=JSON')}",
+        ]
+        if token:
+            query_parts.append(f"fwcsrf={quote_plus(token)}")
+        request_url = self._build_live_request(base_url, query_parts)
+        request = Request(request_url, method="GET")
+        self._request_with_optional_auth(request, username, password)
+
+        deadline = monotonic() + duration_seconds
+        events: list[FhemEvent] = []
+        truncated = False
+        if ssl_context is None:
+            response_ctx = urlopen(request, timeout=timeout_seconds)
+        else:
+            response_ctx = urlopen(request, timeout=timeout_seconds, context=ssl_context)
+
+        with response_ctx as response:
+            while True:
+                remaining = deadline - monotonic()
+                if remaining <= 0:
+                    break
+                self._set_response_read_timeout(response, remaining)
+                try:
+                    raw = response.readline()
+                except (TimeoutError, SocketTimeout):
+                    if monotonic() >= deadline:
+                        break
+                    continue
+                if raw in (b"", ""):
+                    break
+                if isinstance(raw, bytes):
+                    line = raw.decode("utf-8", errors="replace").strip()
+                else:
+                    line = str(raw).strip()
+                line = re.sub(r"<br\s*/?>$", "", line, flags=re.IGNORECASE)
+                if not line:
+                    continue
+
+                event = self._parse_event_payload(line)
+                if device_pattern is not None and not device_pattern.search(event.device or ""):
+                    continue
+                if event_pattern is not None and not event_pattern.search(event.event):
+                    continue
+
+                events.append(event)
+                if len(events) >= max_events:
+                    truncated = True
+                    break
+
+        elapsed = max(0.0, duration_seconds - max(0.0, deadline - monotonic()))
+        return {
+            "duration_seconds": duration_seconds,
+            "observed_seconds": round(elapsed, 3),
+            "event_count": len(events),
+            "truncated": truncated,
+            "events": [self._serialize_event(event) for event in events],
+            "summary": self._summarize_events(events),
+        }
 
     def read_live_config_http(
         self,

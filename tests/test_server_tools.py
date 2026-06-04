@@ -1,5 +1,6 @@
 from pathlib import Path
 from unittest.mock import patch
+from urllib.parse import unquote_plus
 
 from fhem_mcp.server import FhemMcpServer
 
@@ -597,3 +598,255 @@ def test_list_live_logs_http_parses_filelog_jsonlist2() -> None:
 
     cmd_request = mocked_urlopen.call_args_list[1].args[0]
     assert "cmd=jsonlist2+TYPE%3DFileLog" in cmd_request.full_url
+
+
+
+def test_observe_live_events_http_reads_bounded_event_stream() -> None:
+    server = FhemMcpServer(config_root=Path("tests/fixtures"))
+
+    class _TokenResp:
+        headers = {"X-FHEM-csrfToken": "csrf_123"}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class _StreamResp:
+        headers: dict[str, str] = {}
+
+        def __init__(self, lines: list[bytes]) -> None:
+            self._lines = lines
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def readline(self):
+            if self._lines:
+                return self._lines.pop(0)
+            return b""
+
+    lines = [
+        b'["dummy","lamp","state: on"]\n',
+        b'{"device":"tempSensor","type":"MQTT2_DEVICE","event":"temperature: 21.4"}\n',
+        b'2026-06-03 12:00:01 dummy button pressed<br>\n',
+    ]
+
+    with patch("fhem_mcp.server.urlopen", side_effect=[_TokenResp(), _StreamResp(lines)]) as mocked_urlopen:
+        result = server.observe_live_events_http(
+            base_url="https://zeus:8088/fhem",
+            duration_seconds=10,
+            event_monitor_filter="TYPE=dummy",
+            max_events=10,
+            username="alice",
+            password="secret",
+        )
+
+    assert result["event_count"] == 3
+    assert result["truncated"] is False
+    assert result["summary"]["devices"] == {"button": 1, "lamp": 1, "tempSensor": 1}
+    assert result["summary"]["readings"] == {"state": 1, "temperature": 1}
+    assert result["events"][0]["device"] == "lamp"
+    assert result["events"][0]["reading"] == "state"
+    assert result["events"][0]["value"] == "on"
+    assert result["events"][2]["device"] == "button"
+    assert result["events"][2]["event"] == "pressed"
+
+    token_request = mocked_urlopen.call_args_list[0].args[0]
+    request = mocked_urlopen.call_args_list[1].args[0]
+    assert token_request.full_url.endswith("?XHR=1")
+    assert request.full_url.startswith("https://zeus:8088/fhem?")
+    assert "XHR=1" in request.full_url
+    assert "inform=type=raw;filter=^\\S+\\s+\\S+\\s+dummy\\s+;fmt=JSON" in unquote_plus(request.full_url)
+    assert "fwcsrf=csrf_123" in request.full_url
+    assert token_request.get_header("Authorization").startswith("Basic ")
+    assert request.get_header("Authorization").startswith("Basic ")
+
+
+
+def test_observe_live_events_http_translates_type_filter_to_raw_regex() -> None:
+    assert FhemMcpServer._build_raw_event_monitor_filter("TYPE=MQTT2_DEVICE") == r"^\S+\s+\S+\s+MQTT2_DEVICE\s+"
+    assert FhemMcpServer._build_raw_event_monitor_filter("Lichtvoute") == "Lichtvoute"
+
+
+def test_observe_live_events_http_omits_fwcsrf_when_fhem_has_no_token() -> None:
+    server = FhemMcpServer(config_root=Path("tests/fixtures"))
+
+    class _TokenResp:
+        headers: dict[str, str] = {}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class _StreamResp:
+        headers: dict[str, str] = {}
+
+        def __init__(self) -> None:
+            self._lines = [b'["dummy","lamp","state: on"]\n']
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def readline(self):
+            if self._lines:
+                return self._lines.pop(0)
+            return b""
+
+    with patch("fhem_mcp.server.urlopen", side_effect=[_TokenResp(), _StreamResp()]) as mocked_urlopen:
+        result = server.observe_live_events_http(
+            base_url="http://127.0.0.1:8088/fhem",
+            duration_seconds=5,
+            max_events=5,
+        )
+
+    request = mocked_urlopen.call_args_list[1].args[0]
+    assert "fwcsrf=" not in request.full_url
+    assert result["event_count"] == 1
+    assert result["events"][0]["device"] == "lamp"
+
+
+def test_observe_live_events_http_parses_millisecond_timestamps() -> None:
+    event = FhemMcpServer._parse_event_payload("2026-06-03 12:00:01.123 dummy lamp state: on")
+
+    assert event.device_type == "dummy"
+    assert event.device == "lamp"
+    assert event.reading == "state"
+    assert event.value == "on"
+    assert event.event == "state: on"
+
+
+def test_observe_live_events_http_filters_and_truncates() -> None:
+    server = FhemMcpServer(config_root=Path("tests/fixtures"))
+
+    class _StreamResp:
+        headers: dict[str, str] = {}
+
+        def __init__(self) -> None:
+            self._lines = [
+                b'["dummy","lamp","state: on"]\n',
+                b'["dummy","other","state: off"]\n',
+                b'["dummy","lamp","battery: ok"]\n',
+                b'["dummy","lamp","state: off"]\n',
+            ]
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def readline(self):
+            if self._lines:
+                return self._lines.pop(0)
+            return b""
+
+    with patch("fhem_mcp.server.urlopen", return_value=_StreamResp()):
+        result = server.observe_live_events_http(
+            base_url="http://127.0.0.1:8083/fhem",
+            duration_seconds=10,
+            device_regex="^lamp$",
+            event_regex="^state:",
+            max_events=1,
+            fwcsrf="",
+        )
+
+    assert result["event_count"] == 1
+    assert result["truncated"] is True
+    assert result["events"][0]["device"] == "lamp"
+    assert result["events"][0]["event"] == "state: on"
+
+
+def test_observe_live_events_http_rejects_invalid_inputs() -> None:
+    server = FhemMcpServer(config_root=Path("tests/fixtures"))
+
+    invalid_calls = [
+        {"base_url": "ftp://127.0.0.1/fhem"},
+        {"base_url": "http://127.0.0.1:8083/fhem?cmd=list"},
+        {"base_url": "http://127.0.0.1:8083/fhem", "duration_seconds": 0},
+        {"base_url": "http://127.0.0.1:8083/fhem", "duration_seconds": 61},
+        {"base_url": "http://127.0.0.1:8083/fhem", "max_events": 0},
+        {"base_url": "http://127.0.0.1:8083/fhem", "max_events": 5001},
+        {"base_url": "http://127.0.0.1:8083/fhem", "timeout_seconds": 0},
+        {"base_url": "http://127.0.0.1:8083/fhem", "event_monitor_filter": "   "},
+        {"base_url": "http://127.0.0.1:8083/fhem", "device_regex": "["},
+        {"base_url": "http://127.0.0.1:8083/fhem", "username": "alice"},
+    ]
+
+    for kwargs in invalid_calls:
+        try:
+            server.observe_live_events_http(**kwargs)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"Expected ValueError for {kwargs}")
+
+
+
+def test_observe_live_events_http_read_timeout_keeps_observing_until_deadline() -> None:
+    server = FhemMcpServer(config_root=Path("tests/fixtures"))
+
+    class _Sock:
+        def __init__(self) -> None:
+            self.timeouts: list[float] = []
+
+        def settimeout(self, timeout: float) -> None:
+            self.timeouts.append(timeout)
+
+    class _Raw:
+        def __init__(self, sock: _Sock) -> None:
+            self._sock = sock
+
+    class _Fp:
+        def __init__(self, sock: _Sock) -> None:
+            self.raw = _Raw(sock)
+
+    class _IntermittentResp:
+        headers: dict[str, str] = {}
+
+        def __init__(self) -> None:
+            self.sock = _Sock()
+            self.fp = _Fp(self.sock)
+            self.calls = 0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def readline(self):
+            self.calls += 1
+            if self.calls == 1:
+                raise TimeoutError("idle stream")
+            if self.calls == 2:
+                return b'["dummy","lamp","state: on"]\n'
+            return b""
+
+    response = _IntermittentResp()
+    monotonic_values = [0.0, 0.0, 3.0, 3.0, 3.0, 3.0]
+
+    with patch("fhem_mcp.server.urlopen", return_value=response) as mocked_urlopen:
+        with patch("fhem_mcp.server.monotonic", side_effect=monotonic_values):
+            result = server.observe_live_events_http(
+                base_url="http://127.0.0.1:8083/fhem",
+                duration_seconds=10,
+                timeout_seconds=5,
+                event_monitor_filter="rareDevice",
+                fwcsrf="",
+            )
+
+    assert mocked_urlopen.call_args.kwargs["timeout"] == 5
+    assert response.sock.timeouts[:2] == [10.0, 7.0]
+    assert result["event_count"] == 1
+    assert result["events"][0]["device"] == "lamp"
+    assert result["truncated"] is False

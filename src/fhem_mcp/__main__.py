@@ -57,6 +57,20 @@ def _build_parser() -> argparse.ArgumentParser:
     list_live_logs.add_argument("--ca-file", default=None, help="Optional CA bundle file for HTTPS verification")
     list_live_logs.add_argument("--ca-path", default=None, help="Optional CA directory for HTTPS verification")
 
+    observe_events = sub.add_parser("observe_live_events_http", help="Observe FHEMWEB Event Monitor via bounded HTTP raw event longpoll")
+    observe_events.add_argument("base_url", help="FHEM web endpoint, e.g. http://127.0.0.1:8083/fhem")
+    observe_events.add_argument("--duration-seconds", type=int, default=10, help="Observation duration, 1-60 seconds")
+    observe_events.add_argument("--event-monitor-filter", default=".*", help="FHEM raw event regex; TYPE=<type> is translated")
+    observe_events.add_argument("--device-regex", default=None, help="Optional local device regex filter")
+    observe_events.add_argument("--event-regex", default=None, help="Optional local event regex filter")
+    observe_events.add_argument("--max-events", type=int, default=500, help="Maximum events to return, 1-5000")
+    observe_events.add_argument("--fwcsrf", default=None, help="Optional FHEM CSRF token (otherwise fetched dynamically)")
+    observe_events.add_argument("--timeout-seconds", type=float, default=5.0, help="HTTP read timeout in seconds")
+    observe_events.add_argument("--username", default=None, help="Optional basic auth username")
+    observe_events.add_argument("--password", default=None, help="Optional basic auth password")
+    observe_events.add_argument("--ca-file", default=None, help="Optional CA bundle file for HTTPS verification")
+    observe_events.add_argument("--ca-path", default=None, help="Optional CA directory for HTTPS verification")
+
     list_dev = sub.add_parser("list_devices", help="List parsed devices from one config file")
     list_dev.add_argument("relative_path", help="Path relative to config-root")
 
@@ -141,6 +155,21 @@ def main() -> None:
     elif args.command == "list_live_logs_http":
         result = server.list_live_logs_http(
             args.base_url,
+            args.fwcsrf,
+            args.timeout_seconds,
+            args.username,
+            args.password,
+            args.ca_file,
+            args.ca_path,
+        )
+    elif args.command == "observe_live_events_http":
+        result = server.observe_live_events_http(
+            args.base_url,
+            args.duration_seconds,
+            args.event_monitor_filter,
+            args.device_regex,
+            args.event_regex,
+            args.max_events,
             args.fwcsrf,
             args.timeout_seconds,
             args.username,
