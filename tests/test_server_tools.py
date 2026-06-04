@@ -667,6 +667,49 @@ def test_observe_live_events_http_reads_bounded_event_stream() -> None:
 
 
 
+
+def test_observe_live_events_http_omits_fwcsrf_when_fhem_has_no_token() -> None:
+    server = FhemMcpServer(config_root=Path("tests/fixtures"))
+
+    class _TokenResp:
+        headers: dict[str, str] = {}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class _StreamResp:
+        headers: dict[str, str] = {}
+
+        def __init__(self) -> None:
+            self._lines = [b'["dummy","lamp","state: on"]\n']
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def readline(self):
+            if self._lines:
+                return self._lines.pop(0)
+            return b""
+
+    with patch("fhem_mcp.server.urlopen", side_effect=[_TokenResp(), _StreamResp()]) as mocked_urlopen:
+        result = server.observe_live_events_http(
+            base_url="http://127.0.0.1:8088/fhem",
+            duration_seconds=5,
+            max_events=5,
+        )
+
+    request = mocked_urlopen.call_args_list[1].args[0]
+    assert "fwcsrf=" not in request.full_url
+    assert result["event_count"] == 1
+    assert result["events"][0]["device"] == "lamp"
+
+
 def test_observe_live_events_http_parses_millisecond_timestamps() -> None:
     event = FhemMcpServer._parse_event_payload("2026-06-03 12:00:01.123 dummy lamp state: on")
 
