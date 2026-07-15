@@ -27,7 +27,7 @@ def test_initialize_and_list_tools() -> None:
 
     tools = responses[1]["result"]["tools"]
     names = {tool["name"] for tool in tools}
-    assert {"list_config_files", "read_config_file", "read_live_config_http", "list_devices", "get_device", "list_groups", "list_rooms", "find_devices_by_attr", "list_config_summary"}.issubset(names)
+    assert {"list_config_files", "read_config_file", "read_live_config_http", "get_live_device_http", "list_devices", "get_device", "list_groups", "list_rooms", "find_devices_by_attr", "list_config_summary"}.issubset(names)
 
 
 def test_tools_call_roundtrip() -> None:
@@ -256,6 +256,44 @@ def test_tools_call_list_live_logs_http_roundtrip() -> None:
     response = json.loads(out.getvalue().strip())
     payload = json.loads(response["result"]["content"][0]["text"])
     assert payload == {"devices": [], "log_patterns": [], "current_logfiles": []}
+
+
+def test_tools_call_get_live_device_http_roundtrip() -> None:
+    server = StdioMcpServer(config_root=Path("tests/fixtures"))
+    snapshot = {
+        "name": "lamp",
+        "internals": {"TYPE": "dummy"},
+        "attributes": {"room": "Living"},
+        "readings": {"state": {"value": "on", "time": "2026-07-15 10:11:12"}},
+        "possible_sets": "off on",
+        "possible_attributes": "room",
+    }
+    server.backend.get_live_device_http = lambda *args, **kwargs: snapshot
+
+    inp = io.StringIO(
+        json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 65,
+                "method": "tools/call",
+                "params": {
+                    "name": "get_live_device_http",
+                    "arguments": {
+                        "base_url": "https://zeus:8088/fhem",
+                        "device_name": "lamp",
+                        "fwcsrf": "csrf_123",
+                    },
+                },
+            }
+        )
+        + "\n"
+    )
+    out = io.StringIO()
+    server.run(inp, out)
+
+    response = json.loads(out.getvalue().strip())
+    payload = json.loads(response["result"]["content"][0]["text"])
+    assert payload == snapshot
 
 
 

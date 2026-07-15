@@ -600,6 +600,145 @@ def test_list_live_logs_http_parses_filelog_jsonlist2() -> None:
     assert "cmd=jsonlist2+TYPE%3DFileLog" in cmd_request.full_url
 
 
+def test_get_live_device_http_normalizes_jsonlist2_snapshot_and_request() -> None:
+    server = FhemMcpServer(config_root=Path("tests/fixtures"))
+
+    class _Resp:
+        headers: dict[str, str] = {}
+
+        def __init__(self, body: bytes) -> None:
+            self._body = body
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return self._body
+
+    response = {
+        "Results": [
+            {
+                "Name": "living.room-lamp",
+                "Internals": {"TYPE": "dummy", "STATE": "on"},
+                "Attributes": {"alias": "Living room", "room": "Lights"},
+                "Readings": {
+                    "state": {"Value": "on", "Time": "2026-07-15 10:11:12"},
+                    "battery": {"Value": "87", "Time": "2026-07-15 09:00:00"},
+                },
+                "PossibleSets": "off on toggle",
+                "PossibleAttrs": "alias room group",
+            }
+        ]
+    }
+
+    with patch("fhem_mcp.server.urlopen", return_value=_Resp(__import__("json").dumps(response).encode())) as mocked_urlopen:
+        result = server.get_live_device_http(
+            base_url="https://zeus:8088/fhem",
+            device_name="living.room-lamp",
+            fwcsrf="csrf token",
+            timeout_seconds=2.5,
+            username="alice",
+            password="secret",
+        )
+
+    assert result == {
+        "name": "living.room-lamp",
+        "internals": {"TYPE": "dummy", "STATE": "on"},
+        "attributes": {"alias": "Living room", "room": "Lights"},
+        "readings": {
+            "state": {"value": "on", "time": "2026-07-15 10:11:12"},
+            "battery": {"value": "87", "time": "2026-07-15 09:00:00"},
+        },
+        "possible_sets": "off on toggle",
+        "possible_attributes": "alias room group",
+    }
+    request = mocked_urlopen.call_args.args[0]
+    assert request.full_url == (
+        "https://zeus:8088/fhem?cmd=jsonlist2+living.room-lamp&XHR=1&fwcsrf=csrf+token"
+    )
+    assert request.get_header("Authorization").startswith("Basic ")
+    assert mocked_urlopen.call_args.kwargs["timeout"] == 2.5
+
+
+def test_get_live_device_http_returns_none_for_absent_device() -> None:
+    server = FhemMcpServer(config_root=Path("tests/fixtures"))
+
+    with patch.object(server, "_http_get_text", return_value='{"Results":[]}'):
+        result = server.get_live_device_http(
+            base_url="https://zeus:8088/fhem",
+            device_name="missing",
+            fwcsrf="csrf_123",
+        )
+
+    assert result is None
+
+
+def test_get_live_device_http_rejects_unsafe_device_names() -> None:
+    server = FhemMcpServer(config_root=Path("tests/fixtures"))
+
+    for device_name in ("", "lamp;shutdown", "lamp TYPE=dummy", "lamp\nshutdown"):
+        try:
+            server.get_live_device_http(
+                base_url="https://zeus:8088/fhem",
+                device_name=device_name,
+                fwcsrf="csrf_123",
+            )
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"Expected ValueError for unsafe device name: {device_name!r}")
+
+
+def test_get_live_device_http_rejects_invalid_connection_inputs() -> None:
+    server = FhemMcpServer(config_root=Path("tests/fixtures"))
+
+    invalid_arguments = (
+        {"base_url": "ftp://zeus/fhem"},
+        {"base_url": "https://zeus/fhem?cmd=list"},
+        {"base_url": "https://zeus/fhem", "timeout_seconds": 0},
+        {"base_url": "https://zeus/fhem", "username": "alice"},
+    )
+    for arguments in invalid_arguments:
+        try:
+            server.get_live_device_http(
+                device_name="lamp",
+                fwcsrf="csrf_123",
+                **arguments,
+            )
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"Expected ValueError for invalid arguments: {arguments!r}")
+
+
+def test_get_live_device_http_rejects_malformed_jsonlist2_structures() -> None:
+    server = FhemMcpServer(config_root=Path("tests/fixtures"))
+    malformed_responses = (
+        "not json",
+        "{}",
+        '{"Results":{}}',
+        '{"Results":["lamp"]}',
+        '{"Results":[{"Name":"lamp"},{"Name":"lamp"}]}',
+        '{"Results":[{"Name":"lamp","Readings":[]}]}',
+    )
+
+    for response in malformed_responses:
+        with patch.object(server, "_http_get_text", return_value=response):
+            try:
+                server.get_live_device_http(
+                    base_url="https://zeus:8088/fhem",
+                    device_name="lamp",
+                    fwcsrf="csrf_123",
+                )
+            except ValueError:
+                pass
+            else:
+                raise AssertionError(f"Expected ValueError for malformed response: {response}")
+
+
 
 def test_observe_live_events_http_reads_bounded_event_stream() -> None:
     server = FhemMcpServer(config_root=Path("tests/fixtures"))

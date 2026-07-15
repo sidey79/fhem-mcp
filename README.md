@@ -1,8 +1,16 @@
-# FHEM MCP Server (Phase 1 Skeleton)
+# FHEM MCP Server
 
-Dieses Repository enthält ein **read-only** Grundgerüst für einen FHEM MCP Server gemäß `docs/specification.md`.
+Ein **read-only** MCP-Server, der FHEM-Konfigurationen und ausgewählte Laufzeitdaten sicher für AI-Agenten zugänglich macht. Die Architektur trennt statische Quelldateien bewusst vom autoritativen Zustand einer laufenden FHEM-Instanz.
 
-## Phase-1 Umfang
+## Architektur
+
+- **Source View:** Liest `fhem.cfg` und Include-Dateien für Quellzuordnung, Suche und Best-Effort-Validierung.
+- **Runtime View:** Fragt eine laufende FHEM-Instanz read-only über HTTP ab, etwa für Gerätezustand, Logs und Events.
+- **Sandbox Validation:** Ist für spätere Patch-Validierung vorgesehen; Produktions-FHEM wird nicht verändert.
+
+Der Parser bildet FHEM absichtlich nicht vollständig nach. FHEMs Parser ist mit der Ausführung von Befehlen und dem Aufbau von Perl-Laufzeitstrukturen gekoppelt; für den aktiven Zustand bleibt daher die Runtime View maßgeblich.
+
+## Aktueller Funktionsumfang
 
 - Lesen von FHEM-Config-Dateien (`*.cfg`)
 - Best-Effort Parsing von:
@@ -11,12 +19,13 @@ Dieses Repository enthält ein **read-only** Grundgerüst für einen FHEM MCP Se
   - `include`
 - Quellpositions-Tracking (Datei + Zeilennummer)
 - Read-only Tool-Funktionen (kein Write/Apply)
+- Autoritativer Runtime-Snapshot eines einzelnen Geräts per FHEM-HTTP/`jsonlist2`
 - MCP Tool-Schemas sind über Pydantic-Modelle typisiert und werden als JSON-Schema für MCP generiert
 
 Nicht enthalten in Phase 1 (Phase 2+):
 
-- Vollständiger Runtime View Adapter (`jsonlist2`, Telnet)
-- State/Readings Runtime-Tools
+- Vollständiger Runtime View Adapter (Telnet, freie `devspec`- und Massenabfragen)
+- Separate State-/Readings-Komfort-Tools
 - Patch-Proposal/Preview/Validation
 - Produktionsänderungen an FHEM
 - `set/delete/shutdown/rereadcfg`
@@ -32,6 +41,7 @@ Nicht enthalten in Phase 1 (Phase 2+):
 | `read_live_log_http(base_url, log_path?, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?, contains?, regex?, since?, until?, max_lines?, ignore_case?)` | Liest ein Live-Log read-only per FHEM-HTTP (`cmd=style edit ...`) und erlaubt optionale Zeilenfilter (Substring/Regex/Zeitfenster/Limit). | `"2026.05.25 12:00:00 1: ..."` |
 | `list_live_logs_http(base_url, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?)` | Listet verfügbare Live-Logs read-only per FHEM-HTTP (`cmd=jsonlist2 TYPE=FileLog`) inkl. Log-Pattern und aktueller Datei je FileLog-Device. | `{"log_patterns":["./log/fhem-%Y-%m-%d.log"]}` |
 | `observe_live_events_http(base_url, duration_seconds?, event_monitor_filter?, device_regex?, event_regex?, max_events?, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?)` | Beobachtet den FHEMWEB Event Monitor read-only für eine begrenzte Zeit per HTTP-Longpoll (`inform=type=raw;filter=...;fmt=JSON`), nutzt einen Raw-Event-Regex (`TYPE=<type>` wird übersetzt) und liefert Events plus Zusammenfassung. | `{"event_count":2,"summary":{"devices":{"lamp":2}}}` |
+| `get_live_device_http(base_url, device_name, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?)` | Liest genau ein aktives Gerät read-only per FHEM-HTTP (`cmd=jsonlist2 <device_name>`). Freie `devspec`-Ausdrücke und FHEM-Befehle sind nicht erlaubt. | `{"name":"lamp","internals":{"TYPE":"dummy"},"attributes":{"room":"Living"},"readings":{"state":{"value":"on","time":"2026-07-15 12:00:00"}},"possible_sets":"off on","possible_attributes":"room alias"}` |
 | `list_devices(relative_path)` | Listet Geräte aus Entry-Config inkl. Includes mit Typ und Source-Position. | `[{"name":"lamp","device_type":"dummy","source_file":".../fhem.cfg","source_line":2}]` |
 | `get_device(relative_path, device_name)` | Liefert ein Gerät mit `define`-Details und allen zugehörigen `attr`-Einträgen. | `{"name":"lamp","device_type":"dummy","attributes":[...]} ` |
 | `list_groups(relative_path?, group_name?)` | Wertet `attr <device> group ...` aus und gruppiert auf Gruppenname. | `{"Licht":["tempSensor"],"Klima":["tempSensor"]}` |
@@ -44,6 +54,20 @@ Nicht enthalten in Phase 1 (Phase 2+):
 | `search_config(pattern, relative_path?)` | Sucht Textmuster in Configs (bei Entry-File inkl. Include-Baum). | `[{"file":"extras.cfg","line":2,"text":"attr tempSensor room Sensors,system->Datenbank"}]` |
 | `validate_config(relative_path?)` | Basisprüfung auf doppelte Geräte, kaputte `define/attr` und fehlende Includes. | `{"errors":[{"type":"missing_include","include_path":"missing.cfg"}]}` |
 | `get_device_full(device_name)` | Sucht Gerät repo-weit und liefert vollständige Device-Struktur. | `{"name":"tempSensor","device_type":"MQTT2_DEVICE","attributes":[...]} ` |
+
+`get_live_device_http` liefert bei einem unbekannten Gerät `null`. Bei einem Treffer ist die normalisierte Antwort immer ein Objekt mit `name`, `internals`, `attributes`, `readings`, `possible_sets` und `possible_attributes`. `internals` und `attributes` sind Schlüssel/Wert-Objekte; jedes Reading enthält `value` und `time`. Der Aufruf liest ausschließlich Laufzeitdaten und führt insbesondere kein `set`, `delete`, `shutdown` oder `rereadcfg` aus.
+
+### Beispiel: aktives Gerät abfragen
+
+```bash
+fhem-mcp \
+  --config-root /ABSOLUTER/PFAD/ZU/DEINEN/FHEM/CONFIGS \
+  get_live_device_http \
+  https://fhem.example:8083/fhem \
+  lamp
+```
+
+Der gleiche Aufruf steht MCP-Clients als Tool `get_live_device_http` zur Verfügung. Für geschützte Instanzen unterstützt das Tool zusätzlich Basic Auth, einen optionalen CSRF-Token und eigene CA-Pfade für TLS.
 
 ## Parser-Verhalten
 
