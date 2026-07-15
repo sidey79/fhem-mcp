@@ -335,6 +335,37 @@ class FhemMcpServer:
             payload = response.read()
         return payload.decode("utf-8", errors="replace")
 
+    @staticmethod
+    def _parse_jsonlist2_response(
+        decoded: str, context: str, *, strict_results: bool = False
+    ) -> list[object]:
+        try:
+            payload = json.loads(decoded)
+        except json.JSONDecodeError:
+            match = re.search(r"(\{.*\})", decoded, flags=re.DOTALL)
+            if match is None:
+                raise ValueError(f"Unable to parse jsonlist2 {context} response as JSON")
+            try:
+                payload = json.loads(match.group(1))
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"Unable to parse jsonlist2 {context} response as JSON") from exc
+
+        results = payload.get("Results") if isinstance(payload, dict) else None
+        if not isinstance(results, list):
+            raise ValueError(f"Unexpected jsonlist2 {context} response format")
+        if strict_results and any(not isinstance(item, dict) for item in results):
+            raise ValueError(f"Unexpected jsonlist2 {context} result format")
+        return results
+
+    @staticmethod
+    def _validate_live_device_name(device_name: str) -> str:
+        candidate = device_name.strip()
+        if not candidate:
+            raise ValueError("device_name must not be empty")
+        if re.fullmatch(r"[A-Za-z0-9_.-]+", candidate) is None:
+            raise ValueError("device_name must be a literal FHEM device name")
+        return candidate
+
 
     @staticmethod
     def _validate_observe_limit(name: str, value: int, minimum: int, maximum: int) -> None:
@@ -683,20 +714,7 @@ class FhemMcpServer:
         request_url = self._build_live_request(base_url, query_parts)
         decoded = self._http_get_text(request_url, timeout_seconds, username, password, ssl_context)
 
-        try:
-            payload = json.loads(decoded)
-        except json.JSONDecodeError:
-            match = re.search(r"(\{.*\})", decoded, flags=re.DOTALL)
-            if match is None:
-                raise ValueError("Unable to parse jsonlist2 FileLog response as JSON")
-            try:
-                payload = json.loads(match.group(1))
-            except json.JSONDecodeError as exc:
-                raise ValueError("Unable to parse jsonlist2 FileLog response as JSON") from exc
-
-        results = payload.get("Results") if isinstance(payload, dict) else None
-        if not isinstance(results, list):
-            raise ValueError("Unexpected jsonlist2 FileLog response format")
+        results = self._parse_jsonlist2_response(decoded, "FileLog")
 
         devices: list[dict[str, str | None]] = []
         log_patterns: list[str] = []
@@ -742,6 +760,95 @@ class FhemMcpServer:
             "log_patterns": log_patterns,
             "current_logfiles": current_logfiles,
         }
+
+    def get_live_device_http(
+        self,
+        base_url: str,
+        device_name: str,
+        fwcsrf: str | None = None,
+        timeout_seconds: float = 5.0,
+        username: str | None = None,
+        password: str | None = None,
+        ca_file: str | None = None,
+        ca_path: str | None = None,
+    ) -> dict[str, object] | None:
+        self._validate_live_base_url(base_url)
+        target_device = self._validate_live_device_name(device_name)
+        if timeout_seconds <= 0:
+            raise ValueError("timeout_seconds must be > 0")
+        if (username is None) != (password is None):
+            raise ValueError("username and password must be provided together")
+
+        ssl_context = self._build_tls_context(ca_file, ca_path)
+        token = fwcsrf if fwcsrf is not None else self._fetch_fwcsrf_http(
+            base_url, timeout_seconds, username, password, ssl_context
+        )
+        query_parts = [f"cmd={quote_plus(f'jsonlist2 {target_device}')}", "XHR=1"]
+        if token:
+            query_parts.append(f"fwcsrf={quote_plus(token)}")
+        request_url = self._build_live_request(base_url, query_parts)
+        decoded = self._http_get_text(
+            request_url, timeout_seconds, username, password, ssl_context
+        )
+        results = self._parse_jsonlist2_response(
+            decoded, "device", strict_results=True
+        )
+        matches = [
+            item
+            for item in results
+            if isinstance(item, dict) and item.get("Name") == target_device
+        ]
+        if not matches:
+            return None
+        if len(matches) != 1:
+            raise ValueError("Unexpected duplicate device in jsonlist2 response")
+
+        item = matches[0]
+        internals = self._normalize_jsonlist2_values(item.get("Internals"), "Internals")
+        attributes = self._normalize_jsonlist2_values(item.get("Attributes"), "Attributes")
+        readings_raw = item.get("Readings", {})
+        if not isinstance(readings_raw, dict):
+            raise ValueError("Unexpected jsonlist2 device Readings format")
+
+        readings: dict[str, dict[str, str | None]] = {}
+        for name, reading in readings_raw.items():
+            if not isinstance(name, str) or not isinstance(reading, dict):
+                raise ValueError("Unexpected jsonlist2 device reading format")
+            value = reading.get("Value")
+            timestamp = reading.get("Time")
+            if value is not None and not isinstance(value, str):
+                raise ValueError("Unexpected jsonlist2 device reading value format")
+            if timestamp is not None and not isinstance(timestamp, str):
+                raise ValueError("Unexpected jsonlist2 device reading time format")
+            readings[name] = {"value": value, "time": timestamp}
+
+        possible_sets = item.get("PossibleSets")
+        possible_attributes = item.get("PossibleAttrs")
+        if possible_sets is not None and not isinstance(possible_sets, str):
+            raise ValueError("Unexpected jsonlist2 device PossibleSets format")
+        if possible_attributes is not None and not isinstance(possible_attributes, str):
+            raise ValueError("Unexpected jsonlist2 device PossibleAttrs format")
+        return {
+            "name": target_device,
+            "internals": internals,
+            "attributes": attributes,
+            "readings": readings,
+            "possible_sets": possible_sets,
+            "possible_attributes": possible_attributes,
+        }
+
+    @staticmethod
+    def _normalize_jsonlist2_values(value: object, field_name: str) -> dict[str, str | None]:
+        if value is None:
+            return {}
+        if not isinstance(value, dict):
+            raise ValueError(f"Unexpected jsonlist2 device {field_name} format")
+        normalized: dict[str, str | None] = {}
+        for key, item in value.items():
+            if not isinstance(key, str) or (item is not None and not isinstance(item, str)):
+                raise ValueError(f"Unexpected jsonlist2 device {field_name} value format")
+            normalized[key] = item
+        return normalized
 
     def read_live_log_http(
         self,

@@ -16,6 +16,7 @@ Source View + Runtime View + Sandbox Validation.
 - read_live_log_http(base_url, log_path?, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?, contains?, regex?, since?, until?, max_lines?, ignore_case?)
 - list_live_logs_http(base_url, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?)
 - observe_live_events_http(base_url, duration_seconds?, event_monitor_filter? raw regex / TYPE=<type>, device_regex?, event_regex?, max_events?, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?)
+- get_live_device_http(base_url, device_name, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?)
 - list_devices
 - get_device
 - list_groups(relative_path?, group_name?)
@@ -29,8 +30,28 @@ Source View + Runtime View + Sandbox Validation.
 - validate_config(relative_path?)
 - get_device_full(device_name)
 
+### Runtime View contract
+`get_live_device_http` runs the read-only FHEM command `jsonlist2 <device_name>` for one literal, conservatively validated device name. It does not accept arbitrary `devspec` expressions, field selections, or FHEM commands.
+
+An unknown device returns `null`. A matching device returns this normalized shape:
+
+```json
+{
+  "name": "lamp",
+  "internals": {"TYPE": "dummy"},
+  "attributes": {"room": "Living"},
+  "readings": {
+    "state": {"value": "on", "time": "2026-07-15 12:00:00"}
+  },
+  "possible_sets": "off on",
+  "possible_attributes": "room alias"
+}
+```
+
+Malformed JSON, a missing `Results` member, a structurally invalid result, or more than one exact match is an error. The tool is read-only and must never issue `set`, `delete`, `shutdown`, `rereadcfg`, or another modifying command.
+
 ## Phase 2+ tools
-- Runtime View queries (jsonlist2/Telnet adapters and extended live tools)
+- Broader Runtime View queries (Telnet adapters, arbitrary searches, bulk queries, and extended live tools)
 - get_device_state
 - get_readings
 - find_references

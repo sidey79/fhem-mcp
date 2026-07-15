@@ -57,6 +57,19 @@ def _build_parser() -> argparse.ArgumentParser:
     list_live_logs.add_argument("--ca-file", default=None, help="Optional CA bundle file for HTTPS verification")
     list_live_logs.add_argument("--ca-path", default=None, help="Optional CA directory for HTTPS verification")
 
+    live_device = sub.add_parser(
+        "get_live_device_http",
+        help="Get one authoritative live device snapshot via FHEM HTTP jsonlist2",
+    )
+    live_device.add_argument("base_url", help="FHEM web endpoint, e.g. http://127.0.0.1:8083/fhem")
+    live_device.add_argument("device_name", help="Literal FHEM device name")
+    live_device.add_argument("--fwcsrf", default=None, help="Optional FHEM CSRF token (otherwise fetched dynamically)")
+    live_device.add_argument("--timeout-seconds", type=float, default=5.0, help="HTTP timeout in seconds")
+    live_device.add_argument("--username", default=None, help="Optional basic auth username")
+    live_device.add_argument("--password", default=None, help="Optional basic auth password")
+    live_device.add_argument("--ca-file", default=None, help="Optional CA bundle file for HTTPS verification")
+    live_device.add_argument("--ca-path", default=None, help="Optional CA directory for HTTPS verification")
+
     observe_events = sub.add_parser("observe_live_events_http", help="Observe FHEMWEB Event Monitor via bounded HTTP raw event longpoll")
     observe_events.add_argument("base_url", help="FHEM web endpoint, e.g. http://127.0.0.1:8083/fhem")
     observe_events.add_argument("--duration-seconds", type=int, default=10, help="Observation duration, 1-60 seconds")
@@ -155,6 +168,17 @@ def main() -> None:
     elif args.command == "list_live_logs_http":
         result = server.list_live_logs_http(
             args.base_url,
+            args.fwcsrf,
+            args.timeout_seconds,
+            args.username,
+            args.password,
+            args.ca_file,
+            args.ca_path,
+        )
+    elif args.command == "get_live_device_http":
+        result = server.get_live_device_http(
+            args.base_url,
+            args.device_name,
             args.fwcsrf,
             args.timeout_seconds,
             args.username,

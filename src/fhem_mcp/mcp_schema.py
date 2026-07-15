@@ -98,6 +98,10 @@ class ListLiveLogsHttpArgs(StrictModel):
     ca_path: str | None = None
 
 
+class GetLiveDeviceHttpArgs(ListLiveLogsHttpArgs):
+    device_name: str
+
+
 class ObserveLiveEventsHttpArgs(StrictModel):
     base_url: str
     duration_seconds: int = 10
@@ -119,6 +123,7 @@ TOOL_DEFINITIONS: dict[str, tuple[str, type[BaseModel]]] = {
     "read_live_config_http": ("Read one live FHEM config via HTTP cmd=style edit", ReadLiveConfigHttpArgs),
     "read_live_log_http": ("Read live FHEM log via HTTP with optional filters", ReadLiveLogHttpArgs),
     "list_live_logs_http": ("List live FHEM logs via HTTP jsonlist2 TYPE=FileLog", ListLiveLogsHttpArgs),
+    "get_live_device_http": ("Get one authoritative live FHEM device snapshot via HTTP jsonlist2", GetLiveDeviceHttpArgs),
     "observe_live_events_http": ("Observe the FHEMWEB Event Monitor via bounded HTTP raw event longpoll", ObserveLiveEventsHttpArgs),
     "list_devices": ("List parsed devices from one config file", RelativePathArgs),
     "get_device": ("Get one parsed device from one config file", DeviceArgs),
