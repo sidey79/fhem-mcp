@@ -1,8 +1,16 @@
-# FHEM MCP Server (Phase 1 Skeleton)
+# FHEM MCP Server
 
-Dieses Repository enthält ein **read-only** Grundgerüst für einen FHEM MCP Server gemäß `docs/specification.md`.
+Ein **read-only** MCP-Server, der FHEM-Konfigurationen und ausgewählte Laufzeitdaten sicher für AI-Agenten zugänglich macht. Die Architektur trennt statische Quelldateien bewusst vom autoritativen Zustand einer laufenden FHEM-Instanz.
 
-## Phase-1 Umfang
+## Architektur
+
+- **Source View:** Liest `fhem.cfg` und Include-Dateien für Quellzuordnung, Suche und Best-Effort-Validierung.
+- **Runtime View:** Fragt eine laufende FHEM-Instanz read-only über HTTP ab, etwa für Gerätezustand, Logs und Events.
+- **Sandbox Validation:** Ist für spätere Patch-Validierung vorgesehen; Produktions-FHEM wird nicht verändert.
+
+Der Parser bildet FHEM absichtlich nicht vollständig nach. FHEMs Parser ist mit der Ausführung von Befehlen und dem Aufbau von Perl-Laufzeitstrukturen gekoppelt; für den aktiven Zustand bleibt daher die Runtime View maßgeblich.
+
+## Aktueller Funktionsumfang
 
 - Lesen von FHEM-Config-Dateien (`*.cfg`)
 - Best-Effort Parsing von:
@@ -48,6 +56,18 @@ Nicht enthalten in Phase 1 (Phase 2+):
 | `get_device_full(device_name)` | Sucht Gerät repo-weit und liefert vollständige Device-Struktur. | `{"name":"tempSensor","device_type":"MQTT2_DEVICE","attributes":[...]} ` |
 
 `get_live_device_http` liefert bei einem unbekannten Gerät `null`. Bei einem Treffer ist die normalisierte Antwort immer ein Objekt mit `name`, `internals`, `attributes`, `readings`, `possible_sets` und `possible_attributes`. `internals` und `attributes` sind Schlüssel/Wert-Objekte; jedes Reading enthält `value` und `time`. Der Aufruf liest ausschließlich Laufzeitdaten und führt insbesondere kein `set`, `delete`, `shutdown` oder `rereadcfg` aus.
+
+### Beispiel: aktives Gerät abfragen
+
+```bash
+fhem-mcp \
+  --config-root /ABSOLUTER/PFAD/ZU/DEINEN/FHEM/CONFIGS \
+  get_live_device_http \
+  https://fhem.example:8083/fhem \
+  lamp
+```
+
+Der gleiche Aufruf steht MCP-Clients als Tool `get_live_device_http` zur Verfügung. Für geschützte Instanzen unterstützt das Tool zusätzlich Basic Auth, einen optionalen CSRF-Token und eigene CA-Pfade für TLS.
 
 ## Parser-Verhalten
 
