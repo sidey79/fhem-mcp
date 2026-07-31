@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from base64 import b64encode
+from base64 import b64encode, urlsafe_b64decode, urlsafe_b64encode
+from binascii import Error as BinasciiError
+from hashlib import sha256
 from html import unescape
 import json
 from socket import timeout as SocketTimeout
@@ -692,6 +694,56 @@ class FhemMcpServer:
         return "\n".join(out)
 
     @staticmethod
+    def _log_query_fingerprint(
+        contains: str | None,
+        regex: str | None,
+        since: str | None,
+        until: str | None,
+        ignore_case: bool,
+    ) -> str:
+        payload = json.dumps(
+            [contains, regex, since, until, ignore_case],
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        return sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+    @staticmethod
+    def _encode_log_cursor(line_index: int, line: str, query_fingerprint: str) -> str:
+        payload = json.dumps(
+            {
+                "i": line_index,
+                "h": sha256(line.encode("utf-8")).hexdigest()[:16],
+                "q": query_fingerprint,
+            },
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return urlsafe_b64encode(payload).decode("ascii").rstrip("=")
+
+    @staticmethod
+    def _decode_log_cursor(cursor: str) -> tuple[int, str, str]:
+        try:
+            padding = "=" * (-len(cursor) % 4)
+            payload = json.loads(urlsafe_b64decode(cursor + padding).decode("utf-8"))
+            line_index = payload["i"]
+            line_hash = payload["h"]
+            query_fingerprint = payload["q"]
+        except (
+            BinasciiError,
+            KeyError,
+            TypeError,
+            ValueError,
+            UnicodeDecodeError,
+            json.JSONDecodeError,
+        ) as exc:
+            raise ValueError("cursor is invalid") from exc
+        if not isinstance(line_index, int) or line_index < 0:
+            raise ValueError("cursor is invalid")
+        if not isinstance(line_hash, str) or not isinstance(query_fingerprint, str):
+            raise ValueError("cursor is invalid")
+        return line_index, line_hash, query_fingerprint
+
+    @staticmethod
     def _page_log_lines(
         content: str,
         contains: str | None,
@@ -707,13 +759,6 @@ class FhemMcpServer:
             raise ValueError("paged log output requires max_lines >= 1")
         if context_lines < 0:
             raise ValueError("context_lines must be >= 0")
-        try:
-            offset = 0 if cursor is None else int(cursor)
-        except ValueError as exc:
-            raise ValueError("cursor must be a non-negative integer") from exc
-        if offset < 0:
-            raise ValueError("cursor must be a non-negative integer")
-
         lines = content.splitlines()
         since_dt = datetime.strptime(since, "%Y-%m-%d %H:%M:%S") if since else None
         until_dt = datetime.strptime(until, "%Y-%m-%d %H:%M:%S") if until else None
@@ -734,18 +779,42 @@ class FhemMcpServer:
                 continue
             matching_indices.append(index)
 
-        newest_first = list(reversed(matching_indices))
-        selected_matches = newest_first[offset : offset + max_lines]
-        end_offset = offset + len(selected_matches)
-        truncated = end_offset < len(newest_first)
+        query_fingerprint = FhemMcpServer._log_query_fingerprint(
+            contains, regex, since, until, ignore_case
+        )
+        candidates = matching_indices
+        if cursor is not None:
+            anchor_index, anchor_hash, cursor_query = FhemMcpServer._decode_log_cursor(cursor)
+            if cursor_query != query_fingerprint:
+                raise ValueError("cursor does not match the log query")
+            if anchor_index >= len(lines):
+                raise ValueError("cursor is stale")
+            current_hash = sha256(lines[anchor_index].encode("utf-8")).hexdigest()[:16]
+            if current_hash != anchor_hash:
+                raise ValueError("cursor is stale")
+            candidates = [index for index in matching_indices if index < anchor_index]
+
+        newest_first = list(reversed(candidates))
+        selected_matches = newest_first[:max_lines]
+        truncated = len(selected_matches) < len(newest_first)
         included_indices: set[int] = set()
         for index in selected_matches:
             start = max(0, index - context_lines)
             end = min(len(lines), index + context_lines + 1)
             included_indices.update(range(start, end))
         selected_lines = [lines[index] for index in sorted(included_indices)]
-        omitted = ["other_matches"] if len(selected_matches) < len(matching_indices) else []
-        request_more = {"response_format": "paged", "cursor": str(end_offset)} if truncated else None
+        next_cursor = None
+        if truncated and selected_matches:
+            anchor_index = selected_matches[-1]
+            next_cursor = FhemMcpServer._encode_log_cursor(
+                anchor_index, lines[anchor_index], query_fingerprint
+            )
+        omitted = ["other_matches"] if truncated else []
+        request_more = (
+            {"response_format": "paged", "cursor": next_cursor}
+            if next_cursor is not None
+            else None
+        )
         dto = RawLogPageDto(
             meta=ResponseMetaDto(
                 format="raw",
@@ -758,7 +827,7 @@ class FhemMcpServer:
             returned_matches=len(selected_matches),
             returned_lines=len(selected_lines),
             truncated=truncated,
-            next_cursor=str(end_offset) if truncated else None,
+            next_cursor=next_cursor,
         )
         return dto.model_dump(exclude_none=True)
 

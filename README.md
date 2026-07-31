@@ -197,7 +197,7 @@ Die Antwort überträgt Spaltennamen nur einmal und unterstützt begrenzte, fort
 }
 ```
 
-Bei paginierten Antworten enthält `omitted` außerdem `"remaining_rows"`; `request_more.cursor` entspricht `next_cursor`.
+Bei paginierten Tabellenantworten enthält `omitted` außerdem `"remaining_rows"`; `request_more.cursor` entspricht `next_cursor`.
 
 `get_device` unterstützt zusätzlich `format="compact"`. Dabei werden Attribute als Map ausgegeben; Quellreferenzen und Definitionsteile sind über `include_source` beziehungsweise `include_raw` optional. Compact-Geräte nennen in `meta.omitted` insbesondere ausgelassene Quellen, Definitionen und Rohzeilen. Mit `request_more: {"format": "full"}` ist der vollständige Folgeaufruf explizit beschrieben.
 
@@ -225,7 +225,7 @@ Logs bleiben absichtlich Rohtext: Treffer werden weder normalisiert noch zusamme
     "format": "raw",
     "complete": false,
     "omitted": ["other_matches"],
-    "request_more": {"response_format": "paged", "cursor": "100"}
+    "request_more": {"response_format": "paged", "cursor": "eyJpIjo0MjAsImgiOiJhYmMxMjMiLCJxIjoiZGVmNDU2In0"}
   },
   "text": "2026.07.31 18:05:20 3: exact original log message\n...",
   "matched": 479,
@@ -236,4 +236,4 @@ Logs bleiben absichtlich Rohtext: Treffer werden weder normalisiert noch zusamme
 }
 ```
 
-Die Pagination beginnt bei den neuesten Treffern. Innerhalb jeder Seite bleiben Treffer und Kontext chronologisch geordnet. `context_lines` ergänzt originale Nachbarzeilen und kann deshalb dazu führen, dass `returned_lines` größer als `returned_matches` ist. Die Reduktion entsteht ausschließlich durch Filter, Zeitfenster, Limit und Pagination; nicht durch eine verlustbehaftete Umformatierung. FHEM überträgt die Logdatei derzeit weiterhin vollständig zum MCP-Server, der sie anschließend lokal filtert.
+Die Pagination beginnt bei den neuesten Treffern. Cursor sind opak und an die konkrete Trefferzeile sowie die verwendeten Filter gebunden; bei Logrotation, verändertem Anker oder geänderter Abfrage wird ein veralteter Cursor abgelehnt. Innerhalb jeder Seite bleiben Treffer und Kontext chronologisch geordnet. `context_lines` ergänzt originale Nachbarzeilen und kann deshalb dazu führen, dass `returned_lines` größer als `returned_matches` ist. Die Reduktion entsteht ausschließlich durch Filter, Zeitfenster, Limit und Pagination; nicht durch eine verlustbehaftete Umformatierung. FHEM überträgt die Logdatei derzeit weiterhin vollständig zum MCP-Server, der sie anschließend lokal filtert.
