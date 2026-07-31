@@ -232,7 +232,7 @@ Logs bleiben absichtlich Rohtext: Treffer werden weder normalisiert noch zusamme
   "returned_matches": 100,
   "returned_lines": 187,
   "truncated": true,
-  "next_cursor": "100"
+  "next_cursor": "eyJpIjo0MjAsImgiOiJhYmMxMjMiLCJxIjoiZGVmNDU2In0"
 }
 ```
 
