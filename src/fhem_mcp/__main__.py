@@ -47,6 +47,9 @@ def _build_parser() -> argparse.ArgumentParser:
     live_log.add_argument("--until", default=None, help="Optional upper timestamp bound (YYYY-MM-DD HH:MM:SS)")
     live_log.add_argument("--max-lines", type=int, default=500, help="Optional line limit (tail semantics)")
     live_log.add_argument("--ignore-case", action="store_true", help="Case-insensitive contains/regex filtering")
+    live_log.add_argument("--response-format", choices=("text", "paged"), default="text", help="Exact raw text or paginated raw-text envelope")
+    live_log.add_argument("--cursor", default=None, help="Pagination cursor for paged output")
+    live_log.add_argument("--context-lines", type=int, default=0, help="Original lines before and after each paged match")
 
     list_live_logs = sub.add_parser("list_live_logs_http", help="List live logs via FHEM HTTP jsonlist2 TYPE=FileLog")
     list_live_logs.add_argument("base_url", help="FHEM web endpoint, e.g. http://127.0.0.1:8083/fhem")
@@ -164,6 +167,9 @@ def main() -> None:
             args.until,
             args.max_lines,
             args.ignore_case,
+            args.response_format,
+            args.cursor,
+            args.context_lines,
         )
     elif args.command == "list_live_logs_http":
         result = server.list_live_logs_http(

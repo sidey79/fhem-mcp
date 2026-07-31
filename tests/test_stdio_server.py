@@ -353,3 +353,92 @@ def test_tools_call_observe_live_events_http_roundtrip() -> None:
     response = json.loads(out.getvalue().strip())
     payload = json.loads(response["result"]["content"][0]["text"])
     assert payload == {"event_count": 1, "events": []}
+
+
+def test_tools_call_compact_table_roundtrip() -> None:
+    responses = _run_server_lines(
+        [
+            {
+                "jsonrpc": "2.0",
+                "id": 61,
+                "method": "tools/call",
+                "params": {
+                    "name": "list_devices",
+                    "arguments": {
+                        "relative_path": "fhem.cfg",
+                        "format": "table",
+                        "include_source": False,
+                        "limit": 1,
+                    },
+                },
+            }
+        ],
+        config_root=Path("tests/fixtures"),
+    )
+
+    payload = json.loads(responses[0]["result"]["content"][0]["text"])
+    assert payload["meta"] == {
+        "format": "table",
+        "complete": False,
+        "omitted": ["source", "remaining_rows"],
+        "request_more": {"include_source": True, "cursor": "1"},
+    }
+    assert payload["columns"] == ["name", "type"]
+    assert payload["rows"] == [["lamp", "dummy"]]
+    assert payload["next_cursor"] == "1"
+
+
+def test_tools_list_describes_compact_output_arguments() -> None:
+    responses = _run_server_lines(
+        [{"jsonrpc": "2.0", "id": 62, "method": "tools/list", "params": {}}],
+        config_root=Path("tests/fixtures"),
+    )
+
+    tools = {tool["name"]: tool for tool in responses[0]["result"]["tools"]}
+    list_properties = tools["list_devices"]["inputSchema"]["properties"]
+    get_properties = tools["get_device"]["inputSchema"]["properties"]
+    assert list_properties["format"]["default"] == "full"
+    assert list_properties["limit"]["default"] is None
+    assert get_properties["format"]["default"] == "full"
+
+
+def test_tools_call_read_live_log_http_paged_roundtrip() -> None:
+    server = StdioMcpServer(config_root=Path("tests/fixtures"))
+    server.backend.read_live_log_http = lambda *args, **kwargs: {
+        "meta": {
+            "format": "raw",
+            "complete": False,
+            "omitted": ["other_matches"],
+            "request_more": {"response_format": "paged", "cursor": "1"},
+        },
+        "text": "2026.05.25 12:00:00 3: exact ERROR",
+        "matched": 2,
+        "returned_matches": 1,
+        "returned_lines": 1,
+        "truncated": True,
+        "next_cursor": "1",
+    }
+
+    request = {
+        "jsonrpc": "2.0",
+        "id": 63,
+        "method": "tools/call",
+        "params": {
+            "name": "read_live_log_http",
+            "arguments": {
+                "base_url": "https://zeus:8088/fhem",
+                "contains": "ERROR",
+                "response_format": "paged",
+                "max_lines": 1,
+                "context_lines": 2,
+            },
+        },
+    }
+    inp = io.StringIO(json.dumps(request) + "\n")
+    out = io.StringIO()
+    server.run(inp, out)
+
+    response = json.loads(out.getvalue().strip())
+    payload = json.loads(response["result"]["content"][0]["text"])
+    assert payload["text"] == "2026.05.25 12:00:00 3: exact ERROR"
+    assert payload["next_cursor"] == "1"

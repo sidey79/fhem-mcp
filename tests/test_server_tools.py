@@ -989,3 +989,147 @@ def test_observe_live_events_http_read_timeout_keeps_observing_until_deadline() 
     assert result["event_count"] == 1
     assert result["events"][0]["device"] == "lamp"
     assert result["truncated"] is False
+
+
+def test_list_devices_table_output_is_compact_and_paginated() -> None:
+    server = FhemMcpServer(config_root=Path("tests/fixtures"))
+
+    first = server.list_devices(
+        "fhem.cfg",
+        format="table",
+        include_source=False,
+        limit=1,
+    )
+
+    assert first == {
+        "meta": {
+            "format": "table",
+            "complete": False,
+            "omitted": ["source", "remaining_rows"],
+            "request_more": {"include_source": True, "cursor": "1"},
+        },
+        "columns": ["name", "type"],
+        "rows": [["lamp", "dummy"]],
+        "count": 1,
+        "truncated": True,
+        "next_cursor": "1",
+    }
+
+    second = server.list_devices(
+        "fhem.cfg",
+        format="table",
+        include_source=True,
+        limit=1,
+        cursor=first["next_cursor"],
+    )
+    assert second["meta"] == {
+        "format": "table",
+        "complete": True,
+        "omitted": [],
+    }
+    assert second["columns"] == ["name", "type", "file", "line"]
+    assert second["rows"][0][2] == "extras.cfg"
+    assert second["truncated"] is False
+
+
+def test_list_devices_table_rejects_invalid_pagination() -> None:
+    server = FhemMcpServer(config_root=Path("tests/fixtures"))
+
+    for invalid in ("-1", "not-a-cursor"):
+        try:
+            server.list_devices("fhem.cfg", format="table", cursor=invalid)
+        except ValueError as exc:
+            assert "cursor" in str(exc)
+        else:
+            raise AssertionError("Expected invalid cursor to fail")
+
+
+def test_get_device_compact_output_omits_redundant_details() -> None:
+    server = FhemMcpServer(config_root=Path("tests/fixtures"))
+
+    compact = server.get_device(
+        "fhem.cfg",
+        "lamp",
+        format="compact",
+        include_source=True,
+    )
+
+    assert compact is not None
+    assert compact["meta"] == {
+        "format": "compact",
+        "complete": False,
+        "omitted": ["raw_lines", "definition"],
+        "request_more": {"format": "full"},
+    }
+    assert compact["name"] == "lamp"
+    assert compact["type"] == "dummy"
+    assert compact["source"] == {"file": "fhem.cfg", "line": 2}
+    assert compact["attributes"]["alias"] == "Living Room Lamp"
+    assert compact["attribute_sources"]["alias"]["file"] == "fhem.cfg"
+    assert "definition" not in compact
+    assert "raw_line" not in compact["source"]
+    assert all("raw_line" not in source for source in compact["attribute_sources"].values())
+
+
+def test_read_live_log_http_paged_preserves_exact_lines_and_paginates() -> None:
+    server = FhemMcpServer(config_root=Path("tests/fixtures"))
+    lines = [
+        "2026.05.25 12:00:00 1: keep context before",
+        "2026.05.25 12:01:00 3: exact ERROR alpha: value=1",
+        "2026.05.25 12:02:00 1: keep context middle",
+        "2026.05.25 12:03:00 3: exact ERROR beta: value=2",
+        "2026.05.25 12:04:00 1: keep context after",
+    ]
+    log_body = "\n".join(lines) + "\n"
+
+    with patch.object(server, "read_live_config_http", return_value=log_body):
+        first = server.read_live_log_http(
+            base_url="https://zeus:8088/fhem",
+            contains="ERROR",
+            max_lines=1,
+            response_format="paged",
+            context_lines=1,
+        )
+        second = server.read_live_log_http(
+            base_url="https://zeus:8088/fhem",
+            contains="ERROR",
+            max_lines=1,
+            response_format="paged",
+            cursor=first["next_cursor"],
+        )
+
+    assert first["text"] == "\n".join(lines[2:5])
+    assert first["matched"] == 2
+    assert first["returned_matches"] == 1
+    assert first["returned_lines"] == 3
+    assert first["truncated"] is True
+    assert first["next_cursor"] == "1"
+    assert first["meta"] == {
+        "format": "raw",
+        "complete": False,
+        "omitted": ["other_matches"],
+        "request_more": {"response_format": "paged", "cursor": "1"},
+    }
+    assert second["text"] == lines[1]
+    assert second["truncated"] is False
+    assert "next_cursor" not in second
+
+
+def test_read_live_log_http_paged_rejects_invalid_options() -> None:
+    server = FhemMcpServer(config_root=Path("tests/fixtures"))
+    with patch.object(server, "read_live_config_http", return_value="line"):
+        for kwargs in (
+            {"response_format": "paged", "max_lines": 0},
+            {"response_format": "paged", "cursor": "invalid"},
+            {"response_format": "paged", "context_lines": -1},
+            {"response_format": "text", "context_lines": 1},
+        ):
+            try:
+                server.read_live_log_http(
+                    base_url="https://zeus:8088/fhem",
+                    **kwargs,
+                )
+            except ValueError:
+                pass
+            else:
+                raise AssertionError(f"Expected invalid options to fail: {kwargs}")

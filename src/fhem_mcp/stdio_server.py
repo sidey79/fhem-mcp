@@ -169,7 +169,7 @@ class StdioMcpServer:
                     "id": req_id,
                     "result": {
                         "protocolVersion": protocol_version,
-                        "serverInfo": {"name": "fhem-mcp", "title": "FHEM Config MCP", "version": "0.7.0"},
+                        "serverInfo": {"name": "fhem-mcp", "title": "FHEM Config MCP", "version": "0.8.0"},
                         "instructions": "Read-only FHEM config server. Use tools to inspect config files, devices, attributes, and includes.",
                         "capabilities": {"tools": {}},
                     },
@@ -214,7 +214,13 @@ class StdioMcpServer:
         elif tool_name == "read_config_file":
             payload = self.backend.read_config_file(arguments["relative_path"])
         elif tool_name == "list_devices":
-            payload = self.backend.list_devices(arguments["relative_path"])
+            payload = self.backend.list_devices(
+                arguments["relative_path"],
+                arguments.get("format", "full"),
+                arguments.get("include_source", True),
+                arguments.get("limit"),
+                arguments.get("cursor"),
+            )
         elif tool_name == "read_live_config_http":
             payload = self.backend.read_live_config_http(
                 arguments["base_url"],
@@ -242,6 +248,9 @@ class StdioMcpServer:
                 arguments.get("until"),
                 arguments.get("max_lines", 500),
                 arguments.get("ignore_case", False),
+                arguments.get("response_format", "text"),
+                arguments.get("cursor"),
+                arguments.get("context_lines", 0),
             )
         elif tool_name == "list_live_logs_http":
             payload = self.backend.list_live_logs_http(
@@ -280,7 +289,13 @@ class StdioMcpServer:
                 arguments.get("ca_path"),
             )
         elif tool_name == "get_device":
-            payload = self.backend.get_device(arguments["relative_path"], arguments["device_name"])
+            payload = self.backend.get_device(
+                arguments["relative_path"],
+                arguments["device_name"],
+                arguments.get("format", "full"),
+                arguments.get("include_source", False),
+                arguments.get("include_raw", False),
+            )
         elif tool_name == "list_groups":
             payload = self.backend.list_groups(arguments.get("relative_path"), arguments.get("group_name"))
         elif tool_name == "list_rooms":

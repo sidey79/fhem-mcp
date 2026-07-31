@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -19,6 +19,19 @@ class RelativePathArgs(StrictModel):
 
 class DeviceArgs(RelativePathArgs):
     device_name: str
+
+
+class ListDevicesArgs(RelativePathArgs):
+    format: Literal["full", "table"] = "full"
+    include_source: bool = True
+    limit: int | None = None
+    cursor: str | None = None
+
+
+class GetDeviceArgs(DeviceArgs):
+    format: Literal["full", "compact"] = "full"
+    include_source: bool = False
+    include_raw: bool = False
 
 
 class ListGroupsArgs(StrictModel):
@@ -86,6 +99,9 @@ class ReadLiveLogHttpArgs(StrictModel):
     until: str | None = None
     max_lines: int | None = 500
     ignore_case: bool = False
+    response_format: Literal["text", "paged"] = "text"
+    cursor: str | None = None
+    context_lines: int = 0
 
 
 class ListLiveLogsHttpArgs(StrictModel):
@@ -125,8 +141,8 @@ TOOL_DEFINITIONS: dict[str, tuple[str, type[BaseModel]]] = {
     "list_live_logs_http": ("List live FHEM logs via HTTP jsonlist2 TYPE=FileLog", ListLiveLogsHttpArgs),
     "get_live_device_http": ("Get one authoritative live FHEM device snapshot via HTTP jsonlist2", GetLiveDeviceHttpArgs),
     "observe_live_events_http": ("Observe the FHEMWEB Event Monitor via bounded HTTP raw event longpoll", ObserveLiveEventsHttpArgs),
-    "list_devices": ("List parsed devices from one config file", RelativePathArgs),
-    "get_device": ("Get one parsed device from one config file", DeviceArgs),
+    "list_devices": ("List parsed devices; supports token-efficient table output", ListDevicesArgs),
+    "get_device": ("Get one parsed device; supports compact output", GetDeviceArgs),
     "list_groups": ("List group attribute values to devices", ListGroupsArgs),
     "list_rooms": ("List room attribute values to devices", ListRoomsArgs),
     "list_attributes": ("List attributes for one or all devices", ListAttributesArgs),
