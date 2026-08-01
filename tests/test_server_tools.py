@@ -4,7 +4,6 @@ from urllib.parse import unquote_plus
 
 from fhem_mcp.server import FhemMcpServer
 
-
 def test_list_and_read_config_files() -> None:
     server = FhemMcpServer(config_root=Path("tests/fixtures"))
     files = server.list_config_files()
@@ -14,7 +13,6 @@ def test_list_and_read_config_files() -> None:
 
     contents = server.read_config_file("fhem.cfg")
     assert "define lamp dummy" in contents
-
 
 def test_list_devices_and_get_device() -> None:
     server = FhemMcpServer(config_root=Path("tests/fixtures"))
@@ -29,7 +27,6 @@ def test_list_devices_and_get_device() -> None:
     assert lamp["device_type"] == "dummy"
     assert lamp["attributes"][0]["name"] == "alias"
 
-
 def test_list_groups_and_rooms() -> None:
     server = FhemMcpServer(config_root=Path("tests/fixtures"))
 
@@ -41,13 +38,11 @@ def test_list_groups_and_rooms() -> None:
     assert rooms["Sensors"] == ["tempSensor"]
     assert rooms["system->Datenbank"] == ["tempSensor"]
 
-
 def test_list_groups_with_group_name_filter() -> None:
     server = FhemMcpServer(config_root=Path("tests/fixtures"))
 
     filtered = server.list_groups("fhem.cfg", "Licht")
     assert filtered == {"Licht": ["tempSensor"]}
-
 
 def test_list_attributes_and_finders() -> None:
     server = FhemMcpServer(config_root=Path("tests/fixtures"))
@@ -62,7 +57,6 @@ def test_list_attributes_and_finders() -> None:
     by_type = server.find_devices_by_type("fhem.cfg", "MQTT2_DEVICE")
     assert any(item["name"] == "tempSensor" for item in by_type)
 
-
 def test_list_includes_and_summary() -> None:
     server = FhemMcpServer(config_root=Path("tests/fixtures"))
 
@@ -73,7 +67,6 @@ def test_list_includes_and_summary() -> None:
     assert summary["device_count"] >= 2
     assert summary["type_counts"]["dummy"] >= 1
     assert summary["room_assignment_count"] >= 1
-
 
 def test_search_validate_and_get_device_full() -> None:
     server = FhemMcpServer(config_root=Path("tests/fixtures"))
@@ -88,7 +81,6 @@ def test_search_validate_and_get_device_full() -> None:
     assert full is not None
     assert full["device_type"] == "MQTT2_DEVICE"
 
-
 def test_read_config_prevents_path_escape() -> None:
     server = FhemMcpServer(config_root=Path("tests/fixtures"))
 
@@ -98,7 +90,6 @@ def test_read_config_prevents_path_escape() -> None:
         pass
     else:
         raise AssertionError("Expected ValueError for escaped path")
-
 
 def test_read_config_allows_only_cfg_files() -> None:
     server = FhemMcpServer(config_root=Path("tests/fixtures"))
@@ -110,7 +101,6 @@ def test_read_config_allows_only_cfg_files() -> None:
     else:
         raise AssertionError("Expected ValueError for non-cfg file")
 
-
 def test_list_devices_allows_only_cfg_files() -> None:
     server = FhemMcpServer(config_root=Path("tests/fixtures"))
 
@@ -120,7 +110,6 @@ def test_list_devices_allows_only_cfg_files() -> None:
         pass
     else:
         raise AssertionError("Expected ValueError for non-cfg file")
-
 
 def test_get_device_allows_only_cfg_files() -> None:
     server = FhemMcpServer(config_root=Path("tests/fixtures"))
@@ -132,7 +121,6 @@ def test_get_device_allows_only_cfg_files() -> None:
     else:
         raise AssertionError("Expected ValueError for non-cfg file")
 
-
 def test_list_devices_prevents_path_escape() -> None:
     server = FhemMcpServer(config_root=Path("tests/fixtures"))
 
@@ -142,7 +130,6 @@ def test_list_devices_prevents_path_escape() -> None:
         pass
     else:
         raise AssertionError("Expected ValueError for escaped path")
-
 
 def test_get_device_prevents_path_escape() -> None:
     server = FhemMcpServer(config_root=Path("tests/fixtures"))
@@ -154,7 +141,6 @@ def test_get_device_prevents_path_escape() -> None:
     else:
         raise AssertionError("Expected ValueError for escaped path")
 
-
 def test_get_device_from_included_file() -> None:
     server = FhemMcpServer(config_root=Path("tests/fixtures"))
 
@@ -162,14 +148,12 @@ def test_get_device_from_included_file() -> None:
     assert sensor is not None
     assert sensor["device_type"] == "MQTT2_DEVICE"
 
-
 def test_include_order_respects_parent_sequence() -> None:
     server = FhemMcpServer(config_root=Path("tests/fixtures"))
 
     lamp = server.get_device("include_order.cfg", "lamp")
     assert lamp is not None
     assert lamp["definition_tokens"] == ["B"]
-
 
 def test_missing_include_is_best_effort_non_fatal() -> None:
     server = FhemMcpServer(config_root=Path("tests/fixtures"))
@@ -179,7 +163,6 @@ def test_missing_include_is_best_effort_non_fatal() -> None:
     assert "before" in names
     assert "after" in names
 
-
 def test_attrs_across_include_boundaries() -> None:
     server = FhemMcpServer(config_root=Path("tests/fixtures"))
 
@@ -187,7 +170,6 @@ def test_attrs_across_include_boundaries() -> None:
     assert sensor is not None
     attr_names = {attr["name"] for attr in sensor["attributes"]}
     assert "room" in attr_names
-
 
 def test_parent_attr_applies_to_device_defined_in_include() -> None:
     server = FhemMcpServer(config_root=Path("tests/fixtures"))
@@ -197,7 +179,6 @@ def test_parent_attr_applies_to_device_defined_in_include() -> None:
     attrs = {attr["name"]: attr["value"] for attr in device["attributes"]}
     assert attrs["alias"] == "From Parent"
 
-
 def test_no_duplicate_attributes_after_event_replay() -> None:
     server = FhemMcpServer(config_root=Path("tests/fixtures"))
 
@@ -206,14 +187,12 @@ def test_no_duplicate_attributes_after_event_replay() -> None:
     attrs = [a for a in lamp["attributes"] if a["name"] == "alias"]
     assert len(attrs) == 1
 
-
 def test_repeated_includes_are_reprocessed_in_order() -> None:
     server = FhemMcpServer(config_root=Path("tests/fixtures"))
 
     lamp = server.get_device("include_repeat.cfg", "lamp")
     assert lamp is not None
     assert lamp["definition_tokens"] == ["CHILD"]
-
 
 def test_symlink_loop_include_is_best_effort_non_fatal(tmp_path: Path) -> None:
     cfg = tmp_path / "fhem.cfg"
@@ -262,7 +241,6 @@ def test_search_config_relative_path_includes_comment_only_child(tmp_path: Path)
 
     assert any(item["file"] == "child.cfg" for item in matches)
 
-
 def test_validate_config_relative_path_checks_included_files(tmp_path: Path) -> None:
     root = tmp_path / "root.cfg"
     child = tmp_path / "child.cfg"
@@ -287,7 +265,6 @@ def test_validate_config_repo_wide_skips_unreadable_cfg_and_continues(tmp_path: 
     # best-effort: unreadable cfg is reported, validation still returns structured result
     assert "errors" in result
     assert any(err["type"] == "unreadable_config_file" and err["file"] == "loop.cfg" for err in result["errors"])
-
 
 def test_get_device_full_merges_attributes_across_entry_contexts(tmp_path: Path) -> None:
     first = tmp_path / "01-root.cfg"
@@ -322,7 +299,6 @@ def test_repo_wide_group_room_summary_skip_unreadable_cfg(tmp_path: Path) -> Non
     assert rooms.get("Living") == ["lamp"]
     assert summary["device_count"] == 1
 
-
 def test_search_config_repo_wide_skips_unreadable_cfg(tmp_path: Path) -> None:
     good = tmp_path / "good.cfg"
     good.write_text("# IMPORTANT\n", encoding="utf-8")
@@ -334,7 +310,6 @@ def test_search_config_repo_wide_skips_unreadable_cfg(tmp_path: Path) -> None:
     matches = server.search_config("IMPORTANT")
 
     assert any(item["file"] == "good.cfg" for item in matches)
-
 
 def test_read_live_config_http_builds_expected_request() -> None:
     server = FhemMcpServer(config_root=Path("tests/fixtures"))
@@ -380,7 +355,6 @@ def test_read_live_config_http_builds_expected_request() -> None:
     assert token_request.get_header("Authorization").startswith("Basic ")
     assert command_request.get_header("Authorization").startswith("Basic ")
 
-
 def test_read_live_config_http_uses_custom_ca_bundle() -> None:
     server = FhemMcpServer(config_root=Path("tests/fixtures"))
 
@@ -415,7 +389,6 @@ def test_read_live_config_http_uses_custom_ca_bundle() -> None:
     mk_ctx.assert_called_once_with(cafile="/opt/docker/rootca/ca.pem", capath="/opt/docker/rootca")
     assert mocked_urlopen.call_args_list[0].kwargs["context"] == "CTX"
     assert mocked_urlopen.call_args_list[1].kwargs["context"] == "CTX"
-
 
 def test_read_live_config_http_rejects_invalid_inputs() -> None:
     server = FhemMcpServer(config_root=Path("tests/fixtures"))
@@ -456,7 +429,6 @@ def test_read_live_config_http_rejects_invalid_inputs() -> None:
         else:
             raise AssertionError("Expected ValueError for invalid ca_file")
 
-
 def test_read_live_config_http_requires_username_and_password_together() -> None:
     server = FhemMcpServer(config_root=Path("tests/fixtures"))
 
@@ -466,7 +438,6 @@ def test_read_live_config_http_requires_username_and_password_together() -> None
         pass
     else:
         raise AssertionError("Expected ValueError for incomplete basic auth")
-
 
 def test_read_live_config_http_without_fwcsrf_header_still_reads() -> None:
     server = FhemMcpServer(config_root=Path("tests/fixtures"))
@@ -493,7 +464,6 @@ def test_read_live_config_http_without_fwcsrf_header_still_reads() -> None:
     command_request = mocked_urlopen.call_args_list[1].args[0]
     assert "fwcsrf=" not in command_request.full_url
 
-
 def test_read_live_log_http_filters_and_limits_lines() -> None:
     server = FhemMcpServer(config_root=Path("tests/fixtures"))
 
@@ -513,7 +483,6 @@ def test_read_live_log_http_filters_and_limits_lines() -> None:
     mocked_read.assert_called_once()
     assert payload == "2026.05.25 12:01:00 1: ASC bu.Markise cloudy"
 
-
 def test_read_live_log_http_rejects_invalid_inputs() -> None:
     server = FhemMcpServer(config_root=Path("tests/fixtures"))
 
@@ -532,7 +501,6 @@ def test_read_live_log_http_rejects_invalid_inputs() -> None:
         raise AssertionError("Expected ValueError for invalid since format")
 
 
-
 def test_read_live_log_http_with_zero_max_lines_returns_empty() -> None:
     server = FhemMcpServer(config_root=Path("tests/fixtures"))
 
@@ -547,7 +515,6 @@ def test_read_live_log_http_with_zero_max_lines_returns_empty() -> None:
 
     assert payload == ""
 
-
 def test_list_live_logs_http_rejects_base_url_with_query_or_fragment() -> None:
     server = FhemMcpServer(config_root=Path("tests/fixtures"))
 
@@ -558,7 +525,6 @@ def test_list_live_logs_http_rejects_base_url_with_query_or_fragment() -> None:
             pass
         else:
             raise AssertionError("Expected ValueError for unsafe base_url")
-
 
 def test_list_live_logs_http_parses_filelog_jsonlist2() -> None:
     server = FhemMcpServer(config_root=Path("tests/fixtures"))
@@ -598,7 +564,6 @@ def test_list_live_logs_http_parses_filelog_jsonlist2() -> None:
 
     cmd_request = mocked_urlopen.call_args_list[1].args[0]
     assert "cmd=jsonlist2+TYPE%3DFileLog" in cmd_request.full_url
-
 
 def test_get_live_device_http_normalizes_jsonlist2_snapshot_and_request() -> None:
     server = FhemMcpServer(config_root=Path("tests/fixtures"))
@@ -662,7 +627,6 @@ def test_get_live_device_http_normalizes_jsonlist2_snapshot_and_request() -> Non
     assert request.get_header("Authorization").startswith("Basic ")
     assert mocked_urlopen.call_args.kwargs["timeout"] == 2.5
 
-
 def test_get_live_device_http_returns_none_for_absent_device() -> None:
     server = FhemMcpServer(config_root=Path("tests/fixtures"))
 
@@ -674,7 +638,6 @@ def test_get_live_device_http_returns_none_for_absent_device() -> None:
         )
 
     assert result is None
-
 
 def test_get_live_device_http_rejects_unsafe_device_names() -> None:
     server = FhemMcpServer(config_root=Path("tests/fixtures"))
@@ -690,7 +653,6 @@ def test_get_live_device_http_rejects_unsafe_device_names() -> None:
             pass
         else:
             raise AssertionError(f"Expected ValueError for unsafe device name: {device_name!r}")
-
 
 def test_get_live_device_http_rejects_invalid_connection_inputs() -> None:
     server = FhemMcpServer(config_root=Path("tests/fixtures"))
@@ -712,7 +674,6 @@ def test_get_live_device_http_rejects_invalid_connection_inputs() -> None:
             pass
         else:
             raise AssertionError(f"Expected ValueError for invalid arguments: {arguments!r}")
-
 
 def test_get_live_device_http_rejects_malformed_jsonlist2_structures() -> None:
     server = FhemMcpServer(config_root=Path("tests/fixtures"))
@@ -737,7 +698,6 @@ def test_get_live_device_http_rejects_malformed_jsonlist2_structures() -> None:
                 pass
             else:
                 raise AssertionError(f"Expected ValueError for malformed response: {response}")
-
 
 
 def test_observe_live_events_http_reads_bounded_event_stream() -> None:
@@ -806,11 +766,9 @@ def test_observe_live_events_http_reads_bounded_event_stream() -> None:
     assert request.get_header("Authorization").startswith("Basic ")
 
 
-
 def test_observe_live_events_http_translates_type_filter_to_raw_regex() -> None:
     assert FhemMcpServer._build_raw_event_monitor_filter("TYPE=MQTT2_DEVICE") == r"^\S+\s+\S+\s+MQTT2_DEVICE\s+"
     assert FhemMcpServer._build_raw_event_monitor_filter("Lichtvoute") == "Lichtvoute"
-
 
 def test_observe_live_events_http_omits_fwcsrf_when_fhem_has_no_token() -> None:
     server = FhemMcpServer(config_root=Path("tests/fixtures"))
@@ -853,7 +811,6 @@ def test_observe_live_events_http_omits_fwcsrf_when_fhem_has_no_token() -> None:
     assert result["event_count"] == 1
     assert result["events"][0]["device"] == "lamp"
 
-
 def test_observe_live_events_http_parses_millisecond_timestamps() -> None:
     event = FhemMcpServer._parse_event_payload("2026-06-03 12:00:01.123 dummy lamp state: on")
 
@@ -862,7 +819,6 @@ def test_observe_live_events_http_parses_millisecond_timestamps() -> None:
     assert event.reading == "state"
     assert event.value == "on"
     assert event.event == "state: on"
-
 
 def test_observe_live_events_http_filters_and_truncates() -> None:
     server = FhemMcpServer(config_root=Path("tests/fixtures"))
@@ -904,7 +860,6 @@ def test_observe_live_events_http_filters_and_truncates() -> None:
     assert result["events"][0]["device"] == "lamp"
     assert result["events"][0]["event"] == "state: on"
 
-
 def test_observe_live_events_http_rejects_invalid_inputs() -> None:
     server = FhemMcpServer(config_root=Path("tests/fixtures"))
 
@@ -928,7 +883,6 @@ def test_observe_live_events_http_rejects_invalid_inputs() -> None:
             pass
         else:
             raise AssertionError(f"Expected ValueError for {kwargs}")
-
 
 
 def test_observe_live_events_http_read_timeout_keeps_observing_until_deadline() -> None:
@@ -989,3 +943,228 @@ def test_observe_live_events_http_read_timeout_keeps_observing_until_deadline() 
     assert result["event_count"] == 1
     assert result["events"][0]["device"] == "lamp"
     assert result["truncated"] is False
+
+def test_list_devices_table_output_is_compact_and_paginated() -> None:
+    server = FhemMcpServer(config_root=Path("tests/fixtures"))
+
+    first = server.list_devices(
+        "fhem.cfg",
+        format="table",
+        include_source=False,
+        limit=1,
+    )
+
+    assert first == {
+        "meta": {
+            "format": "table",
+            "complete": False,
+            "omitted": ["source", "remaining_rows"],
+            "request_more": {"cursor": "1"},
+            "request_details": {"include_source": True},
+        },
+        "columns": ["name", "type"],
+        "rows": [["lamp", "dummy"]],
+        "count": 1,
+        "truncated": True,
+        "next_cursor": "1",
+    }
+
+    follow_up = server.list_devices(
+        "fhem.cfg",
+        format="table",
+        include_source=False,
+        limit=1,
+        **first["meta"]["request_more"],
+    )
+    assert follow_up["columns"] == first["columns"]
+    assert follow_up["meta"]["request_details"] == {"include_source": True}
+
+    second = server.list_devices(
+        "fhem.cfg",
+        format="table",
+        include_source=True,
+        limit=1,
+        cursor=first["next_cursor"],
+    )
+    assert second["meta"] == {
+        "format": "table",
+        "complete": True,
+        "omitted": [],
+    }
+    assert second["columns"] == ["name", "type", "file", "line"]
+    assert second["rows"][0][2] == "extras.cfg"
+    assert second["truncated"] is False
+
+def test_list_devices_table_rejects_invalid_pagination() -> None:
+    server = FhemMcpServer(config_root=Path("tests/fixtures"))
+
+    for invalid in ("-1", "not-a-cursor"):
+        try:
+            server.list_devices("fhem.cfg", format="table", cursor=invalid)
+        except ValueError as exc:
+            assert "cursor" in str(exc)
+        else:
+            raise AssertionError("Expected invalid cursor to fail")
+
+def test_get_device_compact_output_omits_redundant_details() -> None:
+    server = FhemMcpServer(config_root=Path("tests/fixtures"))
+
+    compact = server.get_device(
+        "fhem.cfg",
+        "lamp",
+        format="compact",
+        include_source=True,
+    )
+
+    assert compact is not None
+    assert compact["meta"] == {
+        "format": "compact",
+        "complete": False,
+        "omitted": ["raw_lines", "definition"],
+        "request_more": {"format": "full"},
+    }
+    assert compact["name"] == "lamp"
+    assert compact["type"] == "dummy"
+    assert compact["source"] == {"file": "fhem.cfg", "line": 2}
+    assert compact["attributes"]["alias"] == "Living Room Lamp"
+    assert compact["attribute_sources"]["alias"]["file"] == "fhem.cfg"
+    assert "definition" not in compact
+    assert "raw_line" not in compact["source"]
+    assert all("raw_line" not in source for source in compact["attribute_sources"].values())
+
+def test_read_live_log_http_paged_preserves_exact_lines_and_paginates() -> None:
+    server = FhemMcpServer(config_root=Path("tests/fixtures"))
+    lines = [
+        "2026.05.25 12:00:00 1: keep context before",
+        "2026.05.25 12:01:00 3: exact ERROR alpha: value=1",
+        "2026.05.25 12:02:00 1: keep context middle",
+        "2026.05.25 12:03:00 3: exact ERROR beta: value=2",
+        "2026.05.25 12:04:00 1: keep context after",
+    ]
+    log_body = "\n".join(lines) + "\n"
+
+    with patch.object(server, "read_live_config_http", return_value=log_body):
+        first = server.read_live_log_http(
+            base_url="https://zeus:8088/fhem",
+            contains="ERROR",
+            max_lines=1,
+            response_format="paged",
+            context_lines=1,
+        )
+        second = server.read_live_log_http(
+            base_url="https://zeus:8088/fhem",
+            contains="ERROR",
+            max_lines=1,
+            response_format="paged",
+            cursor=first["next_cursor"],
+        )
+
+    assert first["text"] == "\n".join(lines[2:5])
+    assert first["matched"] == 2
+    assert first["returned_matches"] == 1
+    assert first["returned_lines"] == 3
+    assert first["truncated"] is True
+    assert isinstance(first["next_cursor"], str)
+    assert first["next_cursor"] != "1"
+    assert first["meta"] == {
+        "format": "raw",
+        "complete": False,
+        "omitted": ["other_matches"],
+        "request_more": {
+            "response_format": "paged",
+            "cursor": first["next_cursor"],
+        },
+    }
+    assert second["text"] == lines[1]
+    assert second["truncated"] is False
+    assert second["meta"] == {
+        "format": "raw",
+        "complete": True,
+        "omitted": [],
+    }
+    assert "next_cursor" not in second
+
+def test_read_live_log_http_paged_rejects_invalid_options() -> None:
+    server = FhemMcpServer(config_root=Path("tests/fixtures"))
+    with patch.object(server, "read_live_config_http", return_value="line"):
+        for kwargs in (
+            {"response_format": "paged", "max_lines": 0},
+            {"response_format": "paged", "cursor": "invalid"},
+            {"response_format": "paged", "context_lines": -1},
+            {"response_format": "text", "context_lines": 1},
+        ):
+            try:
+                server.read_live_log_http(
+                    base_url="https://zeus:8088/fhem",
+                    **kwargs,
+                )
+            except ValueError:
+                pass
+            else:
+                raise AssertionError(f"Expected invalid options to fail: {kwargs}")
+
+
+def test_read_live_log_http_cursor_is_stable_when_new_matches_arrive() -> None:
+    server = FhemMcpServer(config_root=Path("tests/fixtures"))
+    original_lines = [
+        "2026.05.25 12:00:00 3: exact ERROR oldest",
+        "2026.05.25 12:01:00 3: exact ERROR middle",
+        "2026.05.25 12:02:00 3: exact ERROR newest",
+    ]
+    appended_lines = original_lines + [
+        "2026.05.25 12:03:00 3: exact ERROR appended",
+    ]
+
+    with patch.object(
+        server,
+        "read_live_config_http",
+        side_effect=["\n".join(original_lines), "\n".join(appended_lines)],
+    ):
+        first = server.read_live_log_http(
+            base_url="https://zeus:8088/fhem",
+            contains="ERROR",
+            max_lines=1,
+            response_format="paged",
+        )
+        second = server.read_live_log_http(
+            base_url="https://zeus:8088/fhem",
+            contains="ERROR",
+            max_lines=1,
+            response_format="paged",
+            cursor=first["next_cursor"],
+        )
+
+    assert first["text"] == original_lines[2]
+    assert second["text"] == original_lines[1]
+    assert "appended" not in second["text"]
+    assert second["next_cursor"] != first["next_cursor"]
+
+def test_read_live_log_http_cursor_rejects_changed_query_or_anchor() -> None:
+    server = FhemMcpServer(config_root=Path("tests/fixtures"))
+    lines = [
+        "2026.05.25 12:00:00 3: exact ERROR oldest",
+        "2026.05.25 12:01:00 3: exact ERROR newest",
+    ]
+    with patch.object(server, "read_live_config_http", return_value="\n".join(lines)):
+        first = server.read_live_log_http(
+            base_url="https://zeus:8088/fhem",
+            contains="ERROR",
+            max_lines=1,
+            response_format="paged",
+        )
+
+    changed_anchor = [lines[0], "2026.05.25 12:01:00 3: replaced ERROR newest"]
+    for log_body, contains in (("\n".join(lines), "WARN"), ("\n".join(changed_anchor), "ERROR")):
+        with patch.object(server, "read_live_config_http", return_value=log_body):
+            try:
+                server.read_live_log_http(
+                    base_url="https://zeus:8088/fhem",
+                    contains=contains,
+                    max_lines=1,
+                    response_format="paged",
+                    cursor=first["next_cursor"],
+                )
+            except ValueError as exc:
+                assert "cursor" in str(exc)
+            else:
+                raise AssertionError("Expected mismatched cursor to fail")

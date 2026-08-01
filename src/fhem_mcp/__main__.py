@@ -47,6 +47,9 @@ def _build_parser() -> argparse.ArgumentParser:
     live_log.add_argument("--until", default=None, help="Optional upper timestamp bound (YYYY-MM-DD HH:MM:SS)")
     live_log.add_argument("--max-lines", type=int, default=500, help="Optional line limit (tail semantics)")
     live_log.add_argument("--ignore-case", action="store_true", help="Case-insensitive contains/regex filtering")
+    live_log.add_argument("--response-format", choices=("text", "paged"), default="text", help="Exact raw text or paginated raw-text envelope")
+    live_log.add_argument("--cursor", default=None, help="Pagination cursor for paged output")
+    live_log.add_argument("--context-lines", type=int, default=0, help="Original lines before and after each paged match")
 
     list_live_logs = sub.add_parser("list_live_logs_http", help="List live logs via FHEM HTTP jsonlist2 TYPE=FileLog")
     list_live_logs.add_argument("base_url", help="FHEM web endpoint, e.g. http://127.0.0.1:8083/fhem")
@@ -86,10 +89,17 @@ def _build_parser() -> argparse.ArgumentParser:
 
     list_dev = sub.add_parser("list_devices", help="List parsed devices from one config file")
     list_dev.add_argument("relative_path", help="Path relative to config-root")
+    list_dev.add_argument("--format", choices=("full", "table"), default="full", help="Legacy object list or compact table")
+    list_dev.add_argument("--include-source", action=argparse.BooleanOptionalAction, default=True, help="Include source columns in table output")
+    list_dev.add_argument("--limit", type=int, default=None, help="Maximum table rows")
+    list_dev.add_argument("--cursor", default=None, help="Table pagination cursor")
 
     get_dev = sub.add_parser("get_device", help="Get one parsed device from one config file")
     get_dev.add_argument("relative_path", help="Path relative to config-root")
     get_dev.add_argument("device_name", help="Device name")
+    get_dev.add_argument("--format", choices=("full", "compact"), default="full", help="Full or compact device output")
+    get_dev.add_argument("--include-source", action="store_true", help="Include compact source references")
+    get_dev.add_argument("--include-raw", action="store_true", help="Include compact definition tokens")
 
     list_groups = sub.add_parser("list_groups", help="List group attributes mapped to devices")
     list_groups.add_argument("relative_path", nargs="?", default=None, help="Optional path relative to config-root")
@@ -145,7 +155,13 @@ def main() -> None:
     elif args.command == "read_config_file":
         result = server.read_config_file(args.relative_path)
     elif args.command == "list_devices":
-        result = server.list_devices(args.relative_path)
+        result = server.list_devices(
+            args.relative_path,
+            args.format,
+            args.include_source,
+            args.limit,
+            args.cursor,
+        )
     elif args.command == "read_live_config_http":
         result = server.read_live_config_http(args.base_url, args.config_path, args.fwcsrf, args.timeout_seconds, args.username, args.password, args.ca_file, args.ca_path)
     elif args.command == "read_live_log_http":
@@ -164,6 +180,9 @@ def main() -> None:
             args.until,
             args.max_lines,
             args.ignore_case,
+            args.response_format,
+            args.cursor,
+            args.context_lines,
         )
     elif args.command == "list_live_logs_http":
         result = server.list_live_logs_http(
@@ -202,7 +221,13 @@ def main() -> None:
             args.ca_path,
         )
     elif args.command == "get_device":
-        result = server.get_device(args.relative_path, args.device_name)
+        result = server.get_device(
+            args.relative_path,
+            args.device_name,
+            args.format,
+            args.include_source,
+            args.include_raw,
+        )
     elif args.command == "list_groups":
         result = server.list_groups(args.relative_path, args.group_name)
     elif args.command == "list_rooms":

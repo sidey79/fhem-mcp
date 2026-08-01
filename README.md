@@ -38,7 +38,7 @@ Nicht enthalten in Phase 1 (Phase 2+):
 | `list_config_files()` | Listet alle `.cfg`-Dateien unterhalb des Config-Roots. | `["fhem.cfg", "extras.cfg"]` |
 | `read_config_file(relative_path)` | Liest den Rohinhalt einer Config-Datei. | `"define lamp dummy\nattr lamp alias Living Room Lamp"` |
 | `read_live_config_http(base_url, config_path?, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?)` | Liest eine Live-Config read-only per FHEM-HTTP (`cmd=style edit ...`), holt `fwcsrf` dynamisch (oder nutzt Override) unterstützt optional Basic Auth und optionale CA-Parameter für TLS-Verifikation. | `"define lamp dummy\n..."` |
-| `read_live_log_http(base_url, log_path?, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?, contains?, regex?, since?, until?, max_lines?, ignore_case?)` | Liest ein Live-Log read-only per FHEM-HTTP (`cmd=style edit ...`) und erlaubt optionale Zeilenfilter (Substring/Regex/Zeitfenster/Limit). | `"2026.05.25 12:00:00 1: ..."` |
+| `read_live_log_http(base_url, log_path?, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?, contains?, regex?, since?, until?, max_lines?, ignore_case?, response_format?, cursor?, context_lines?)` | Liest ein Live-Log read-only per FHEM-HTTP (`cmd=style edit ...`) und erlaubt optionale Zeilenfilter (Substring/Regex/Zeitfenster/Limit). Der additive paged-Modus liefert unveränderte Originalzeilen mit Cursor und optionalen Kontextzeilen. | `"2026.05.25 12:00:00 1: ..."` |
 | `list_live_logs_http(base_url, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?)` | Listet verfügbare Live-Logs read-only per FHEM-HTTP (`cmd=jsonlist2 TYPE=FileLog`) inkl. Log-Pattern und aktueller Datei je FileLog-Device. | `{"log_patterns":["./log/fhem-%Y-%m-%d.log"]}` |
 | `observe_live_events_http(base_url, duration_seconds?, event_monitor_filter?, device_regex?, event_regex?, max_events?, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?)` | Beobachtet den FHEMWEB Event Monitor read-only für eine begrenzte Zeit per HTTP-Longpoll (`inform=type=raw;filter=...;fmt=JSON`), nutzt einen Raw-Event-Regex (`TYPE=<type>` wird übersetzt) und liefert Events plus Zusammenfassung. | `{"event_count":2,"summary":{"devices":{"lamp":2}}}` |
 | `get_live_device_http(base_url, device_name, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?)` | Liest genau ein aktives Gerät read-only per FHEM-HTTP (`cmd=jsonlist2 <device_name>`). Freie `devspec`-Ausdrücke und FHEM-Befehle sind nicht erlaubt. | `{"name":"lamp","internals":{"TYPE":"dummy"},"attributes":{"room":"Living"},"readings":{"state":{"value":"on","time":"2026-07-15 12:00:00"}},"possible_sets":"off on","possible_attributes":"room alias"}` |
@@ -164,3 +164,76 @@ Hinweise:
 ```bash
 pytest
 ```
+
+
+## LLM-optimierte Ausgabeformate
+
+Die erste additive Ausbaustufe stellt für `list_devices` eine tokenarme Tabellenausgabe bereit. Ohne `format` bleibt die bisherige Ausgabe erhalten.
+
+```json
+{
+  "relative_path": "fhem.cfg",
+  "format": "table",
+  "include_source": false,
+  "limit": 100,
+  "cursor": null
+}
+```
+
+Die Antwort überträgt Spaltennamen nur einmal und unterstützt begrenzte, fortsetzbare Ergebnisse. Eine kompakte Meta-Sektion kennzeichnet ausgelassene Daten und zeigt dem LLM die Parameter für einen Folgeaufruf:
+
+```json
+{
+  "meta": {
+    "format": "table",
+    "complete": false,
+    "omitted": ["source"],
+    "request_details": {"include_source": true}
+  },
+  "columns": ["name", "type"],
+  "rows": [["lamp", "dummy"]],
+  "count": 1,
+  "truncated": false
+}
+```
+
+Bei paginierten Tabellenantworten enthält `omitted` außerdem `"remaining_rows"`; `request_more.cursor` entspricht `next_cursor` und führt die Pagination mit unverändertem Spaltenschema fort. `request_details` beschreibt davon getrennt einen erneuten Abruf ausgelassener Detailfelder.
+
+`get_device` unterstützt zusätzlich `format="compact"`. Dabei werden Attribute als Map ausgegeben; Quellreferenzen und Definitionsteile sind über `include_source` beziehungsweise `include_raw` optional. Compact-Geräte nennen in `meta.omitted` insbesondere ausgelassene Quellen, Definitionen und Rohzeilen. Mit `request_more: {"format": "full"}` ist der vollständige Folgeaufruf explizit beschrieben.
+
+Die vollständigen Legacy-Ausgaben bleiben in Version 0.8 über `format="full"` der Standard. Weitere Listenwerkzeuge werden nach demselben DTO-Vertrag schrittweise ergänzt.
+
+
+### Exakte und paginierte Logsuche
+
+Logs bleiben absichtlich Rohtext: Treffer werden weder normalisiert noch zusammengefasst. Der kompatible Standard `response_format="text"` liefert weiterhin eine Zeichenkette. Für große Treffermengen liefert `response_format="paged"` einen kleinen Envelope um die unveränderten Originalzeilen:
+
+```json
+{
+  "base_url": "https://fhem.example:8088/fhem",
+  "contains": "ERROR",
+  "since": "2026-07-31 18:00:00",
+  "max_lines": 100,
+  "response_format": "paged",
+  "context_lines": 1
+}
+```
+
+```json
+{
+  "meta": {
+    "format": "raw",
+    "complete": false,
+    "omitted": ["other_matches"],
+    "request_more": {"response_format": "paged", "cursor": "eyJpIjo0MjAsImgiOiJhYmMxMjMiLCJxIjoiZGVmNDU2In0"}
+  },
+  "text": "2026.07.31 18:05:20 3: exact original log message\n...",
+  "matched": 479,
+  "returned_matches": 100,
+  "returned_lines": 187,
+  "truncated": true,
+  "next_cursor": "eyJpIjo0MjAsImgiOiJhYmMxMjMiLCJxIjoiZGVmNDU2In0"
+}
+```
+
+Die Pagination beginnt bei den neuesten Treffern. Cursor sind opak und an die konkrete Trefferzeile sowie die verwendeten Filter gebunden; bei Logrotation, verändertem Anker oder geänderter Abfrage wird ein veralteter Cursor abgelehnt. Innerhalb jeder Seite bleiben Treffer und Kontext chronologisch geordnet. `context_lines` ergänzt originale Nachbarzeilen und kann deshalb dazu führen, dass `returned_lines` größer als `returned_matches` ist. Die Reduktion entsteht ausschließlich durch Filter, Zeitfenster, Limit und Pagination; nicht durch eine verlustbehaftete Umformatierung. FHEM überträgt die Logdatei derzeit weiterhin vollständig zum MCP-Server, der sie anschließend lokal filtert.

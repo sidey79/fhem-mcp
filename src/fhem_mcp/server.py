@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from base64 import b64encode
+from base64 import b64encode, urlsafe_b64decode, urlsafe_b64encode
+from binascii import Error as BinasciiError
+from hashlib import sha256
 from html import unescape
 import json
 from socket import timeout as SocketTimeout
@@ -15,6 +17,8 @@ from urllib.request import Request, urlopen
 from typing import Literal
 
 from .models import FhemAttribute, FhemDevice, FhemEvent
+from .output_mapper import device_to_compact, rows_to_table
+from .output_models import RawLogPageDto, ResponseMetaDto
 from .parser import FhemConfigParser, IncludeDirective
 
 
@@ -689,6 +693,144 @@ class FhemMcpServer:
 
         return "\n".join(out)
 
+    @staticmethod
+    def _log_query_fingerprint(
+        contains: str | None,
+        regex: str | None,
+        since: str | None,
+        until: str | None,
+        ignore_case: bool,
+    ) -> str:
+        payload = json.dumps(
+            [contains, regex, since, until, ignore_case],
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        return sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+    @staticmethod
+    def _encode_log_cursor(line_index: int, line: str, query_fingerprint: str) -> str:
+        payload = json.dumps(
+            {
+                "i": line_index,
+                "h": sha256(line.encode("utf-8")).hexdigest()[:16],
+                "q": query_fingerprint,
+            },
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return urlsafe_b64encode(payload).decode("ascii").rstrip("=")
+
+    @staticmethod
+    def _decode_log_cursor(cursor: str) -> tuple[int, str, str]:
+        try:
+            padding = "=" * (-len(cursor) % 4)
+            payload = json.loads(urlsafe_b64decode(cursor + padding).decode("utf-8"))
+            line_index = payload["i"]
+            line_hash = payload["h"]
+            query_fingerprint = payload["q"]
+        except (
+            BinasciiError,
+            KeyError,
+            TypeError,
+            ValueError,
+            UnicodeDecodeError,
+            json.JSONDecodeError,
+        ) as exc:
+            raise ValueError("cursor is invalid") from exc
+        if not isinstance(line_index, int) or line_index < 0:
+            raise ValueError("cursor is invalid")
+        if not isinstance(line_hash, str) or not isinstance(query_fingerprint, str):
+            raise ValueError("cursor is invalid")
+        return line_index, line_hash, query_fingerprint
+
+    @staticmethod
+    def _page_log_lines(
+        content: str,
+        contains: str | None,
+        regex: str | None,
+        since: str | None,
+        until: str | None,
+        max_lines: int | None,
+        ignore_case: bool,
+        cursor: str | None,
+        context_lines: int,
+    ) -> dict[str, object]:
+        if max_lines is None or max_lines < 1:
+            raise ValueError("paged log output requires max_lines >= 1")
+        if context_lines < 0:
+            raise ValueError("context_lines must be >= 0")
+        lines = content.splitlines()
+        since_dt = datetime.strptime(since, "%Y-%m-%d %H:%M:%S") if since else None
+        until_dt = datetime.strptime(until, "%Y-%m-%d %H:%M:%S") if until else None
+        flags = re.IGNORECASE if ignore_case else 0
+        regex_obj = re.compile(regex, flags=flags) if regex else None
+        needle = contains.lower() if (contains and ignore_case) else contains
+        matching_indices: list[int] = []
+        for index, line in enumerate(lines):
+            timestamp = FhemMcpServer._parse_log_timestamp(line)
+            if since_dt is not None and (timestamp is None or timestamp < since_dt):
+                continue
+            if until_dt is not None and (timestamp is None or timestamp > until_dt):
+                continue
+            haystack = line.lower() if ignore_case else line
+            if needle and needle not in haystack:
+                continue
+            if regex_obj is not None and not regex_obj.search(line):
+                continue
+            matching_indices.append(index)
+
+        query_fingerprint = FhemMcpServer._log_query_fingerprint(
+            contains, regex, since, until, ignore_case
+        )
+        candidates = matching_indices
+        if cursor is not None:
+            anchor_index, anchor_hash, cursor_query = FhemMcpServer._decode_log_cursor(cursor)
+            if cursor_query != query_fingerprint:
+                raise ValueError("cursor does not match the log query")
+            if anchor_index >= len(lines):
+                raise ValueError("cursor is stale")
+            current_hash = sha256(lines[anchor_index].encode("utf-8")).hexdigest()[:16]
+            if current_hash != anchor_hash:
+                raise ValueError("cursor is stale")
+            candidates = [index for index in matching_indices if index < anchor_index]
+
+        newest_first = list(reversed(candidates))
+        selected_matches = newest_first[:max_lines]
+        truncated = len(selected_matches) < len(newest_first)
+        included_indices: set[int] = set()
+        for index in selected_matches:
+            start = max(0, index - context_lines)
+            end = min(len(lines), index + context_lines + 1)
+            included_indices.update(range(start, end))
+        selected_lines = [lines[index] for index in sorted(included_indices)]
+        next_cursor = None
+        if truncated and selected_matches:
+            anchor_index = selected_matches[-1]
+            next_cursor = FhemMcpServer._encode_log_cursor(
+                anchor_index, lines[anchor_index], query_fingerprint
+            )
+        omitted = ["other_matches"] if truncated else []
+        request_more = (
+            {"response_format": "paged", "cursor": next_cursor}
+            if next_cursor is not None
+            else None
+        )
+        dto = RawLogPageDto(
+            meta=ResponseMetaDto(
+                format="raw",
+                complete=not omitted,
+                omitted=omitted,
+                request_more=request_more,
+            ),
+            text="\n".join(selected_lines),
+            matched=len(matching_indices),
+            returned_matches=len(selected_matches),
+            returned_lines=len(selected_lines),
+            truncated=truncated,
+            next_cursor=next_cursor,
+        )
+        return dto.model_dump(exclude_none=True)
+
     def list_live_logs_http(
         self,
         base_url: str,
@@ -866,7 +1008,10 @@ class FhemMcpServer:
         until: str | None = None,
         max_lines: int | None = 500,
         ignore_case: bool = False,
-    ) -> str:
+        response_format: Literal["text", "paged"] = "text",
+        cursor: str | None = None,
+        context_lines: int = 0,
+    ) -> str | dict[str, object]:
         if not log_path.strip():
             raise ValueError("log_path must not be empty")
         if timeout_seconds <= 0:
@@ -875,6 +1020,12 @@ class FhemMcpServer:
             raise ValueError("username and password must be provided together")
         if max_lines is not None and max_lines < 0:
             raise ValueError("max_lines must be >= 0")
+        if response_format not in {"text", "paged"}:
+            raise ValueError("response_format must be text or paged")
+        if response_format == "text" and (cursor is not None or context_lines != 0):
+            raise ValueError("cursor and context_lines require response_format=paged")
+        if context_lines < 0:
+            raise ValueError("context_lines must be >= 0")
         if since is not None:
             datetime.strptime(since, "%Y-%m-%d %H:%M:%S")
         if until is not None:
@@ -899,29 +1050,76 @@ class FhemMcpServer:
             ca_path=ca_path,
             enforce_cfg_suffix=False,
         )
+        if response_format == "paged":
+            return self._page_log_lines(
+                raw,
+                contains,
+                regex,
+                since,
+                until,
+                max_lines,
+                ignore_case,
+                cursor,
+                context_lines,
+            )
         return self._filter_log_lines(raw, contains, regex, since, until, max_lines, ignore_case)
 
-    def list_devices(self, relative_path: str) -> list[dict[str, object]]:
+    def list_devices(
+        self,
+        relative_path: str,
+        format: Literal["full", "table"] = "full",
+        include_source: bool = True,
+        limit: int | None = None,
+        cursor: str | None = None,
+    ) -> list[dict[str, object]] | dict[str, object]:
         file_path = self._resolve_in_root(relative_path)
         self._ensure_cfg_file(file_path)
         devices = self._collect_devices_recursive(file_path)
-        return [
+        rows = [
             {
                 "name": dev.name,
-                "device_type": dev.device_type,
-                "source_file": str(dev.source.file_path),
-                "source_line": dev.source.line_number,
+                "type": dev.device_type,
+                "file": str(dev.source.file_path.relative_to(self.config_root)),
+                "line": dev.source.line_number,
             }
             for dev in devices.values()
         ]
+        if format == "table":
+            columns = ["name", "type"]
+            if include_source:
+                columns.extend(["file", "line"])
+            return rows_to_table(rows, columns, limit=limit, cursor=cursor)
+        return [
+            {
+                "name": row["name"],
+                "device_type": row["type"],
+                "source_file": str(dev.source.file_path),
+                "source_line": row["line"],
+            }
+            for row, dev in zip(rows, devices.values())
+        ]
 
-    def get_device(self, relative_path: str, device_name: str) -> dict | None:
+    def get_device(
+        self,
+        relative_path: str,
+        device_name: str,
+        format: Literal["full", "compact"] = "full",
+        include_source: bool = False,
+        include_raw: bool = False,
+    ) -> dict[str, object] | None:
         file_path = self._resolve_in_root(relative_path)
         self._ensure_cfg_file(file_path)
         devices = self._collect_devices_recursive(file_path)
         device = devices.get(device_name)
         if device is None:
             return None
+        if format == "compact":
+            return device_to_compact(
+                device,
+                self.config_root,
+                include_source=include_source,
+                include_raw=include_raw,
+            )
         return self._serialize_device(device)
 
     def list_groups(self, relative_path: str | None = None, group_name: str | None = None) -> dict[str, list[str]]:
