@@ -188,7 +188,7 @@ Die Antwort überträgt Spaltennamen nur einmal und unterstützt begrenzte, fort
     "format": "table",
     "complete": false,
     "omitted": ["source"],
-    "request_more": {"include_source": true}
+    "request_details": {"include_source": true}
   },
   "columns": ["name", "type"],
   "rows": [["lamp", "dummy"]],
@@ -197,7 +197,7 @@ Die Antwort überträgt Spaltennamen nur einmal und unterstützt begrenzte, fort
 }
 ```
 
-Bei paginierten Tabellenantworten enthält `omitted` außerdem `"remaining_rows"`; `request_more.cursor` entspricht `next_cursor`.
+Bei paginierten Tabellenantworten enthält `omitted` außerdem `"remaining_rows"`; `request_more.cursor` entspricht `next_cursor` und führt die Pagination mit unverändertem Spaltenschema fort. `request_details` beschreibt davon getrennt einen erneuten Abruf ausgelassener Detailfelder.
 
 `get_device` unterstützt zusätzlich `format="compact"`. Dabei werden Attribute als Map ausgegeben; Quellreferenzen und Definitionsteile sind über `include_source` beziehungsweise `include_raw` optional. Compact-Geräte nennen in `meta.omitted` insbesondere ausgelassene Quellen, Definitionen und Rohzeilen. Mit `request_more: {"format": "full"}` ist der vollständige Folgeaufruf explizit beschrieben.
 

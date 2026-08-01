@@ -90,9 +90,10 @@ def rows_to_table(
     truncated = end < len(materialized)
     omitted = []
     request_more: dict[str, ScalarValue] = {}
+    request_details: dict[str, ScalarValue] = {}
     if "file" not in columns and any("file" in row for row in materialized):
         omitted.append("source")
-        request_more["include_source"] = True
+        request_details["include_source"] = True
     if truncated:
         omitted.append("remaining_rows")
         request_more["cursor"] = str(end)
@@ -103,6 +104,7 @@ def rows_to_table(
             complete=not omitted,
             omitted=omitted,
             request_more=request_more or None,
+            request_details=request_details or None,
         ),
         columns=list(columns),
         rows=[[row.get(column) for column in columns] for row in selected],

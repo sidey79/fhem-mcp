@@ -381,7 +381,8 @@ def test_tools_call_compact_table_roundtrip() -> None:
         "format": "table",
         "complete": False,
         "omitted": ["source", "remaining_rows"],
-        "request_more": {"include_source": True, "cursor": "1"},
+        "request_more": {"cursor": "1"},
+        "request_details": {"include_source": True},
     }
     assert payload["columns"] == ["name", "type"]
     assert payload["rows"] == [["lamp", "dummy"]]

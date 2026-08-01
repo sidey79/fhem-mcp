@@ -19,6 +19,7 @@ class ResponseMetaDto(OutputModel):
     complete: bool
     omitted: list[str] = Field(default_factory=list)
     request_more: dict[str, ScalarValue] | None = None
+    request_details: dict[str, ScalarValue] | None = None
 
 
 class SourceRefDto(OutputModel):

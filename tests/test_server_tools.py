@@ -959,7 +959,8 @@ def test_list_devices_table_output_is_compact_and_paginated() -> None:
             "format": "table",
             "complete": False,
             "omitted": ["source", "remaining_rows"],
-            "request_more": {"include_source": True, "cursor": "1"},
+            "request_more": {"cursor": "1"},
+            "request_details": {"include_source": True},
         },
         "columns": ["name", "type"],
         "rows": [["lamp", "dummy"]],
@@ -967,6 +968,16 @@ def test_list_devices_table_output_is_compact_and_paginated() -> None:
         "truncated": True,
         "next_cursor": "1",
     }
+
+    follow_up = server.list_devices(
+        "fhem.cfg",
+        format="table",
+        include_source=False,
+        limit=1,
+        **first["meta"]["request_more"],
+    )
+    assert follow_up["columns"] == first["columns"]
+    assert follow_up["meta"]["request_details"] == {"include_source": True}
 
     second = server.list_devices(
         "fhem.cfg",
