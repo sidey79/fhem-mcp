@@ -19,7 +19,7 @@ from typing import Literal
 
 from .models import FhemAttribute, FhemDevice, FhemEvent
 from .output_mapper import device_to_compact, rows_to_table
-from .output_models import LiveGetResultDto, RawLogPageDto, ResponseMetaDto
+from .output_models import LiveGetResultDto, LiveSetResultDto, RawLogPageDto, ResponseMetaDto
 from .parser import FhemConfigParser, IncludeDirective
 
 
@@ -34,16 +34,18 @@ class ParseEvent:
 
 
 class FhemMcpServer:
-    """Read-only Phase 1 MCP tool surface for source-view operations."""
+    """FHEM source and runtime MCP tool surface."""
 
     def __init__(
         self,
         config_root: Path,
-        allow_get: frozenset[tuple[str, str]] | None = None,
+        enable_get: bool = False,
+        enable_set: bool = False,
     ) -> None:
         self.config_root = config_root.resolve()
         self.parser = FhemConfigParser()
-        self.allow_get = frozenset(allow_get or ())
+        self.enable_get = enable_get
+        self.enable_set = enable_set
 
     def _resolve_in_root(self, relative_path: str) -> Path:
         target = (self.config_root / relative_path).resolve()
@@ -1000,10 +1002,8 @@ class FhemMcpServer:
         self._validate_live_base_url(base_url)
         target_device = self._validate_live_device_name(device_name)
         parameters, get_option = self._validate_live_get_parameters(get_parameters)
-        if parameters != "?" and (target_device, get_option) not in self.allow_get:
-            raise ValueError(
-                f"FHEM GET is not allowed for device {target_device!r} and option {get_option!r}"
-            )
+        if not self.enable_get:
+            raise ValueError("FHEM GET commands are disabled; start the server with --enable-get")
         if timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be > 0")
         if (username is None) != (password is None):
@@ -1028,18 +1028,70 @@ class FhemMcpServer:
             response=response,
         ).model_dump()
 
+    def run_live_set_http(
+        self,
+        base_url: str,
+        device_name: str,
+        set_parameters: str,
+        fwcsrf: str | None = None,
+        timeout_seconds: float = 5.0,
+        username: str | None = None,
+        password: str | None = None,
+        ca_file: str | None = None,
+        ca_path: str | None = None,
+    ) -> dict[str, str]:
+        self._validate_live_base_url(base_url)
+        target_device = self._validate_live_device_name(device_name)
+        parameters, set_option = self._validate_live_command_parameters(
+            set_parameters, "set_parameters"
+        )
+        if not self.enable_set:
+            raise ValueError("FHEM SET commands are disabled; start the server with --enable-set")
+        if timeout_seconds <= 0:
+            raise ValueError("timeout_seconds must be > 0")
+        if (username is None) != (password is None):
+            raise ValueError("username and password must be provided together")
+
+        ssl_context = self._build_tls_context(ca_file, ca_path)
+        token = fwcsrf if fwcsrf is not None else self._fetch_fwcsrf_http(
+            base_url, timeout_seconds, username, password, ssl_context
+        )
+        command = f"set {target_device} {parameters}"
+        query_parts = [f"cmd={quote_plus(command)}", "XHR=1"]
+        if token:
+            query_parts.append(f"fwcsrf={quote_plus(token)}")
+        request_url = self._build_live_request(base_url, query_parts)
+        response = self._http_get_text(
+            request_url, timeout_seconds, username, password, ssl_context
+        )
+        return LiveSetResultDto(
+            device_name=target_device,
+            set_option=set_option,
+            set_parameters=parameters,
+            response=response,
+        ).model_dump()
+
     @staticmethod
-    def _validate_live_get_parameters(get_parameters: str) -> tuple[str, str]:
-        candidate = get_parameters.strip()
+    def _validate_live_command_parameters(
+        parameters: str, field_name: str
+    ) -> tuple[str, str]:
+        candidate = parameters.strip()
         if not candidate:
-            raise ValueError("get_parameters must not be empty")
+            raise ValueError(f"{field_name} must not be empty")
         if ";" in candidate or any(
             unicodedata.category(ch).startswith("C") for ch in candidate
         ):
             raise ValueError(
-                "get_parameters contains unsupported control or command characters"
+                f"{field_name} contains unsupported control or command characters"
             )
         return candidate, candidate.split(maxsplit=1)[0]
+
+    @staticmethod
+    def _validate_live_get_parameters(get_parameters: str) -> tuple[str, str]:
+        return FhemMcpServer._validate_live_command_parameters(
+            get_parameters, "get_parameters"
+        )
+
 
     @staticmethod
     def _normalize_jsonlist2_values(value: object, field_name: str) -> dict[str, str | None]:

@@ -32,11 +32,11 @@ fhem-mcp --config-root tests/fixtures get_device_full tempSensor
 # Autoritativen Runtime-Snapshot eines einzelnen Geräts lesen
 fhem-mcp --config-root tests/fixtures get_live_device_http http://fhem.example:8083/fhem lamp
 
-# Allowlisted aktives Geräte-GET; --allow-get ist global und wiederholbar
-fhem-mcp --config-root tests/fixtures --allow-get Weather:forecast run_live_get_http http://fhem.example:8083/fhem Weather "forecast tomorrow"
+# Aktives GET global einschalten
+fhem-mcp --config-root tests/fixtures --enable-get run_live_get_http http://fhem.example:8083/fhem Weather "forecast tomorrow"
 
-# Discovery für ein literales Gerät benötigt keine Allowlist
-fhem-mcp --config-root tests/fixtures run_live_get_http http://fhem.example:8083/fhem Weather "?"
+# Aktives SET unabhängig davon global einschalten
+fhem-mcp --config-root tests/fixtures --enable-set run_live_set_http http://fhem.example:8083/fhem lamp "on"
 ```
 
 Alternativ über Python-Modul:
@@ -51,7 +51,7 @@ python -m fhem_mcp --config-root tests/fixtures list_config_files
 python -m fhem_mcp --config-root /ABSOLUTER/PFAD/ZU/DEINEN/FHEM/CONFIGS mcp-stdio
 ```
 
-Unterstützte MCP-Methoden in Phase 1:
+Unterstützte MCP-Methoden:
 
 - `initialize`
 - `tools/list`
@@ -74,9 +74,9 @@ Der Runtime-Aufruf ist auch per MCP als `get_live_device_http` mit diesem Vertra
 
 Die Antwort ist `null`, wenn das exakte Gerät nicht existiert. Andernfalls enthält sie `name`, die Objekte `internals` und `attributes`, ein `readings`-Objekt mit `value` und `time` je Reading sowie `possible_sets` und `possible_attributes` als String oder `null`. Es wird ausschließlich `jsonlist2 <device_name>` ausgeführt; freie `devspec`-Ausdrücke, Telnet und schreibende FHEM-Befehle sind nicht Teil dieses Tools.
 
-`run_live_get_http` ist der davon getrennte aktive Runtime-Aufruf. Normale Optionen müssen beim Start mit dem wiederholbaren globalen Argument `--allow-get DEVICE:OPTION` freigeschaltet werden; Vergleich und Deduplizierung erfolgen exakt und case-sensitiv. Exakt `?` ist ohne Regel erlaubt. Das Tool akzeptiert nur einen literalen Gerätenamen, trennt die erste Option an Whitespace und lehnt leere Parameter, Semikolon, NUL, Newline, Tab und andere Steuerzeichen vor einem Netzwerkzugriff ab. Die unveränderte FHEM-Antwort steht in `response`.
+`run_live_get_http` und `run_live_set_http` sind davon getrennte aktive Phase-2-Runtime-Aufrufe. Sie sind standardmäßig deaktiviert und werden unabhängig mit den globalen Schaltern `--enable-get` und `--enable-set` freigeschaltet. Die Schalter gelten auch beim Start von `mcp-stdio`. Beide Tools akzeptieren nur einen literalen Gerätenamen und lehnen leere Parameter, Semikolon, NUL, Newline, Tab und andere Steuerzeichen vor einem Netzwerkzugriff ab. Die unveränderte FHEM-Antwort steht in `response`.
 
-Ein modulspezifischer GET-Handler kann blockieren oder Nebenwirkungen auslösen. Das Tool ist daher opt-in **active runtime access**, nicht garantiert read-only und kein allgemeiner FHEM-Befehlsdurchreicher. Es bietet weder freie `devspec` noch SET oder andere schreibende Befehle.
+Nach der globalen Freigabe entscheidet FHEM über die Berechtigung. Empfohlen wird eine dedizierte `apiWeb`-FHEMWEB-Instanz mit einem eng konfigurierten `allowed`-Device, `allowfrom`, HTTPS, Authentifizierung und aktivem CSRF-Schutz. GET kann abhängig vom Modul blockieren oder Nebenwirkungen haben; SET verändert ausdrücklich den Laufzeitzustand. Freie FHEM-Befehle und `devspec` werden weiterhin nicht angeboten.
 
 ## IDE/Agent Integration
 

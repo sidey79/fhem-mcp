@@ -14,12 +14,17 @@ from .server import FhemMcpServer
 @dataclass
 class StdioMcpServer:
     config_root: Path
-    allow_get: frozenset[tuple[str, str]] = frozenset()
+    enable_get: bool = False
+    enable_set: bool = False
     SUPPORTED_PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
     DEFAULT_PROTOCOL_VERSION = "2024-11-05"
 
     def __post_init__(self) -> None:
-        self.backend = FhemMcpServer(config_root=self.config_root, allow_get=self.allow_get)
+        self.backend = FhemMcpServer(
+            config_root=self.config_root,
+            enable_get=self.enable_get,
+            enable_set=self.enable_set,
+        )
 
     def run(self, instream: BinaryIO | TextIO, outstream: BinaryIO | TextIO) -> None:
         while True:
@@ -171,7 +176,7 @@ class StdioMcpServer:
                     "result": {
                         "protocolVersion": protocol_version,
                         "serverInfo": {"name": "fhem-mcp", "title": "FHEM Config MCP", "version": "0.9.0"},
-                        "instructions": "FHEM config server with read-only inspection and opt-in allowlisted active GET access.",
+                        "instructions": "FHEM config server with read-only inspection and independently enabled active GET and SET access governed by FHEM authorization.",
                         "capabilities": {"tools": {}},
                     },
                 }
@@ -279,6 +284,18 @@ class StdioMcpServer:
                 arguments["base_url"],
                 arguments["device_name"],
                 arguments["get_parameters"],
+                arguments.get("fwcsrf"),
+                arguments.get("timeout_seconds", 5.0),
+                arguments.get("username"),
+                arguments.get("password"),
+                arguments.get("ca_file"),
+                arguments.get("ca_path"),
+            )
+        elif tool_name == "run_live_set_http":
+            payload = self.backend.run_live_set_http(
+                arguments["base_url"],
+                arguments["device_name"],
+                arguments["set_parameters"],
                 arguments.get("fwcsrf"),
                 arguments.get("timeout_seconds", 5.0),
                 arguments.get("username"),

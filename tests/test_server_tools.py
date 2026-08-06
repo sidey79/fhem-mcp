@@ -1170,11 +1170,8 @@ def test_read_live_log_http_cursor_rejects_changed_query_or_anchor() -> None:
                 raise AssertionError("Expected mismatched cursor to fail")
 
 
-def test_run_live_get_http_allowlist_transport_and_response() -> None:
-    server = FhemMcpServer(
-        config_root=Path("tests/fixtures"),
-        allow_get=frozenset({("Weather", "forecast")}),
-    )
+def test_run_live_get_http_enabled_transport_and_response() -> None:
+    server = FhemMcpServer(config_root=Path("tests/fixtures"), enable_get=True)
 
     class _Resp:
         headers: dict[str, str] = {}
@@ -1192,80 +1189,74 @@ def test_run_live_get_http_allowlist_transport_and_response() -> None:
         "fhem_mcp.server.urlopen", return_value=_Resp()
     ) as mocked_urlopen:
         result = server.run_live_get_http(
-            "https://zeus:8088/fhem",
-            "Weather",
-            "  forecast tomorrow  ",
-            fwcsrf="csrf token",
-            timeout_seconds=2.5,
-            username="alice",
-            password="secret",
-            ca_file="/certs/ca.pem",
+            "https://zeus:8088/fhem", "Weather", "  forecast tomorrow  ",
+            fwcsrf="csrf token", timeout_seconds=2.5, username="alice",
+            password="secret", ca_file="/certs/ca.pem",
         )
 
     assert result == {
-        "device_name": "Weather",
-        "get_option": "forecast",
-        "get_parameters": "forecast tomorrow",
-        "response": "line one\nline two\n",
+        "device_name": "Weather", "get_option": "forecast",
+        "get_parameters": "forecast tomorrow", "response": "line one\nline two\n",
     }
     request = mocked_urlopen.call_args.args[0]
-    assert request.full_url == (
-        "https://zeus:8088/fhem?cmd=get+Weather+forecast+tomorrow&XHR=1&fwcsrf=csrf+token"
-    )
+    assert request.full_url == "https://zeus:8088/fhem?cmd=get+Weather+forecast+tomorrow&XHR=1&fwcsrf=csrf+token"
     assert request.get_header("Authorization").startswith("Basic ")
-    assert mocked_urlopen.call_args.kwargs["timeout"] == 2.5
-    assert mocked_urlopen.call_args.kwargs["context"] == "TLS"
+    assert mocked_urlopen.call_args.kwargs == {"timeout": 2.5, "context": "TLS"}
     tls_context.assert_called_once_with(cafile="/certs/ca.pem", capath=None)
 
 
-def test_run_live_get_http_discovery_and_policy() -> None:
-    empty_server = FhemMcpServer(config_root=Path("tests/fixtures"))
-    with patch.object(empty_server, "_http_get_text", return_value="") as request:
-        result = empty_server.run_live_get_http(
-            "http://fhem:8083/fhem", "lamp", "?", fwcsrf="token"
+def test_run_live_set_http_enabled_transport_and_response() -> None:
+    server = FhemMcpServer(config_root=Path("tests/fixtures"), enable_set=True)
+    with patch.object(server, "_http_get_text", return_value="") as request:
+        result = server.run_live_set_http(
+            "http://fhem:8083/fhem", "lamp", "  desired-temp 21.5  ", fwcsrf="token"
         )
-    assert result["response"] == ""
-    request.assert_called_once()
+    assert result == {
+        "device_name": "lamp", "set_option": "desired-temp",
+        "set_parameters": "desired-temp 21.5", "response": "",
+    }
+    assert "cmd=set+lamp+desired-temp+21.5&XHR=1&fwcsrf=token" in request.call_args.args[0]
 
-    for parameters in ("status", "? extra"):
-        with patch.object(empty_server, "_http_get_text") as no_request:
+
+def test_live_get_and_set_are_disabled_by_default_before_network() -> None:
+    server = FhemMcpServer(config_root=Path("tests/fixtures"))
+    calls = (
+        (server.run_live_get_http, "status", "--enable-get"),
+        (server.run_live_set_http, "on", "--enable-set"),
+    )
+    for method, parameters, switch in calls:
+        with patch("fhem_mcp.server.urlopen") as no_network:
             try:
-                empty_server.run_live_get_http(
-                    "http://fhem:8083/fhem", "lamp", parameters, fwcsrf="token"
-                )
+                method("http://fhem:8083/fhem", "lamp", parameters, fwcsrf=None)
             except ValueError as exc:
-                assert "not allowed" in str(exc)
+                assert switch in str(exc)
             else:
-                raise AssertionError("Expected policy rejection")
-            no_request.assert_not_called()
+                raise AssertionError("Expected disabled command to fail")
+            no_network.assert_not_called()
 
 
-def test_run_live_get_http_rejects_unsafe_inputs_before_network() -> None:
+def test_live_get_and_set_reject_unsafe_inputs_before_network() -> None:
     server = FhemMcpServer(
-        config_root=Path("tests/fixtures"),
-        allow_get=frozenset({("lamp", "status")}),
+        config_root=Path("tests/fixtures"), enable_get=True, enable_set=True
     )
     unsafe = ("", "   ", "status;shutdown", "status\nshutdown", "status\targ", "status\0arg", "status\x7farg")
-    for parameters in unsafe:
-        with patch("fhem_mcp.server.urlopen") as no_network:
-            try:
-                server.run_live_get_http(
-                    "http://fhem:8083/fhem", "lamp", parameters, fwcsrf=None
-                )
-            except ValueError:
-                pass
-            else:
-                raise AssertionError(f"Expected rejection for {parameters!r}")
-            no_network.assert_not_called()
+    for method in (server.run_live_get_http, server.run_live_set_http):
+        for parameters in unsafe:
+            with patch("fhem_mcp.server.urlopen") as no_network:
+                try:
+                    method("http://fhem:8083/fhem", "lamp", parameters, fwcsrf=None)
+                except ValueError:
+                    pass
+                else:
+                    raise AssertionError(f"Expected rejection for {parameters!r}")
+                no_network.assert_not_called()
 
-    for device in ("", "TYPE=dummy", "lamp;shutdown", "lamp other"):
-        with patch("fhem_mcp.server.urlopen") as no_network:
-            try:
-                server.run_live_get_http(
-                    "http://fhem:8083/fhem", device, "?", fwcsrf=None
-                )
-            except ValueError:
-                pass
-            else:
-                raise AssertionError(f"Expected rejection for {device!r}")
-            no_network.assert_not_called()
+        for device in ("", "TYPE=dummy", "lamp;shutdown", "lamp other"):
+            with patch("fhem_mcp.server.urlopen") as no_network:
+                try:
+                    method("http://fhem:8083/fhem", device, "status", fwcsrf=None)
+                except ValueError:
+                    pass
+                else:
+                    raise AssertionError(f"Expected rejection for {device!r}")
+                no_network.assert_not_called()

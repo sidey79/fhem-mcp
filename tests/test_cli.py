@@ -136,13 +136,21 @@ def test_compact_device_cli_forwards_output_options() -> None:
     )
 
 
-def test_run_live_get_http_cli_allowlist_contract_and_deduplication() -> None:
-    args = _build_parser().parse_args([
-        "--config-root", "tests/fixtures",
-        "--allow-get", "Weather:forecast",
-        "--allow-get", "Weather:forecast",
+def test_live_get_and_set_cli_enable_switches() -> None:
+    parser = _build_parser()
+    get_args = parser.parse_args([
+        "--config-root", "tests/fixtures", "--enable-get",
         "run_live_get_http", "https://zeus:8088/fhem", "Weather", "forecast tomorrow",
-        "--fwcsrf", "token",
     ])
-    assert frozenset(args.allow_get) == frozenset({("Weather", "forecast")})
-    assert args.get_parameters == "forecast tomorrow"
+    set_args = parser.parse_args([
+        "--config-root", "tests/fixtures", "--enable-set",
+        "run_live_set_http", "https://zeus:8088/fhem", "lamp", "on",
+    ])
+    defaults = parser.parse_args([
+        "--config-root", "tests/fixtures", "list_config_files",
+    ])
+    assert get_args.enable_get is True and get_args.enable_set is False
+    assert get_args.get_parameters == "forecast tomorrow"
+    assert set_args.enable_set is True and set_args.enable_get is False
+    assert set_args.set_parameters == "on"
+    assert defaults.enable_get is False and defaults.enable_set is False

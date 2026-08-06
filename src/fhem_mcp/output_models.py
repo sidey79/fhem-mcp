@@ -77,3 +77,10 @@ class LiveGetResultDto(OutputModel):
     get_option: str
     get_parameters: str
     response: str
+
+
+class LiveSetResultDto(OutputModel):
+    device_name: str
+    set_option: str
+    set_parameters: str
+    response: str

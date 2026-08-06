@@ -445,34 +445,40 @@ def test_tools_call_read_live_log_http_paged_roundtrip() -> None:
     assert payload["next_cursor"] == "1"
 
 
-def test_run_live_get_http_tool_roundtrip_and_strict_schema() -> None:
+def test_live_get_and_set_tool_roundtrip_and_strict_schema() -> None:
     server = StdioMcpServer(
-        config_root=Path("tests/fixtures"),
-        allow_get=frozenset({("Weather", "forecast")}),
+        config_root=Path("tests/fixtures"), enable_get=True, enable_set=True
     )
-    expected = {
-        "device_name": "Weather",
-        "get_option": "forecast",
-        "get_parameters": "forecast tomorrow",
-        "response": "sunny",
+    expected_get = {
+        "device_name": "Weather", "get_option": "forecast",
+        "get_parameters": "forecast tomorrow", "response": "sunny",
     }
-    server.backend.run_live_get_http = lambda *args, **kwargs: expected
-    inp = io.StringIO(
-        json.dumps({
-            "jsonrpc": "2.0", "id": 91, "method": "tools/call",
-            "params": {"name": "run_live_get_http", "arguments": {
-                "base_url": "https://zeus:8088/fhem",
-                "device_name": "Weather",
+    expected_set = {
+        "device_name": "lamp", "set_option": "on",
+        "set_parameters": "on", "response": "",
+    }
+    server.backend.run_live_get_http = lambda *args, **kwargs: expected_get
+    server.backend.run_live_set_http = lambda *args, **kwargs: expected_set
+    requests = [
+        {"jsonrpc": "2.0", "id": 91, "method": "tools/call", "params": {
+            "name": "run_live_get_http", "arguments": {
+                "base_url": "https://zeus:8088/fhem", "device_name": "Weather",
                 "get_parameters": "forecast tomorrow",
-            }},
-        }) + "\n"
-    )
+            }}},
+        {"jsonrpc": "2.0", "id": 92, "method": "tools/call", "params": {
+            "name": "run_live_set_http", "arguments": {
+                "base_url": "https://zeus:8088/fhem", "device_name": "lamp",
+                "set_parameters": "on",
+            }}},
+    ]
+    inp = io.StringIO("".join(json.dumps(item) + "\n" for item in requests))
     out = io.StringIO()
     server.run(inp, out)
-    response = json.loads(out.getvalue())
-    assert json.loads(response["result"]["content"][0]["text"]) == expected
+    responses = [json.loads(line) for line in out.getvalue().splitlines()]
+    assert json.loads(responses[0]["result"]["content"][0]["text"]) == expected_get
+    assert json.loads(responses[1]["result"]["content"][0]["text"]) == expected_set
 
-    tools = server._tools()
-    schema = next(tool["inputSchema"] for tool in tools if tool["name"] == "run_live_get_http")
-    assert schema["additionalProperties"] is False
-    assert {"base_url", "device_name", "get_parameters"}.issubset(schema["required"])
+    tools = {tool["name"]: tool["inputSchema"] for tool in server._tools()}
+    for name, parameter in (("run_live_get_http", "get_parameters"), ("run_live_set_http", "set_parameters")):
+        assert tools[name]["additionalProperties"] is False
+        assert {"base_url", "device_name", parameter}.issubset(tools[name]["required"])

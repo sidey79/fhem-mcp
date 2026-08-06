@@ -9,7 +9,7 @@ FHEM's parser is integrated in fhem.pl and applies the configuration while parsi
 ## Architecture
 Source View + Runtime View + Sandbox Validation.
 
-## Phase 1 tools
+## Implemented tools
 - list_config_files
 - read_config_file
 - read_live_config_http(base_url, config_path?, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?)
@@ -18,6 +18,7 @@ Source View + Runtime View + Sandbox Validation.
 - observe_live_events_http(base_url, duration_seconds?, event_monitor_filter? raw regex / TYPE=<type>, device_regex?, event_regex?, max_events?, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?)
 - get_live_device_http(base_url, device_name, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?)
 - run_live_get_http(base_url, device_name, get_parameters, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?)
+- run_live_set_http(base_url, device_name, set_parameters, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?)
 - list_devices
 - get_device
 - list_groups(relative_path?, group_name?)
@@ -51,11 +52,13 @@ An unknown device returns `null`. A matching device returns this normalized shap
 
 Malformed JSON, a missing `Results` member, a structurally invalid result, or more than one exact match is an error. The tool is read-only and must never issue `set`, `delete`, `shutdown`, `rereadcfg`, or another modifying command.
 
-`run_live_get_http` is active runtime access. The server constructs only `get <literal-device> <validated-parameters>` and sends it URL-encoded with `XHR=1` and optional `fwcsrf`. Except for exact `?`, the literal device and first whitespace-delimited GET option must exactly and case-sensitively match a startup `--allow-get DEVICE:OPTION` rule. Rules contain no wildcards or regular expressions and duplicates are deduplicated. Empty parameters, `devspec` device expressions, semicolons, NUL, line breaks, tabs, and other control characters are rejected before network access. `?` with additional arguments has no discovery exemption.
+`run_live_get_http` and `run_live_set_http` are Phase 2 active runtime access. They are disabled by default and enabled independently at server startup with `--enable-get` and `--enable-set`. The server constructs only `get <literal-device> <validated-parameters>` or `set <literal-device> <validated-parameters>` and sends it URL-encoded with `XHR=1` and optional `fwcsrf`. Empty parameters, `devspec` device expressions, semicolons, NUL, line breaks, tabs, and other control characters are rejected before network access.
 
-The returned object contains `device_name`, `get_option`, trimmed `get_parameters`, and the unchanged FHEM response text. Module errors remain response text because generic success/error interpretation is not reliable. Connection, TLS, validation, and policy failures are tool errors. Module-specific GET handlers can block or have side effects, so this tool is opt-in and is not claimed to be universally read-only. It never exposes an arbitrary FHEM command or SET pass-through.
+Authorization is delegated to FHEM after global enablement. Deployments should use a dedicated FHEMWEB `apiWeb` instance protected by `allowed`, narrow `allowfrom`, HTTPS, authentication, and CSRF. The MCP server intentionally does not duplicate device- or option-level policy.
 
-## Phase 2+ tools
+GET results and SET results contain the literal device name, first option, trimmed parameters, and unchanged FHEM response text. Module errors remain response text because generic success/error interpretation is not reliable. Connection, TLS, validation, and disabled-feature failures are tool errors. GET handlers can block or have side effects; SET explicitly changes runtime state. No arbitrary FHEM command, `delete`, `shutdown`, `rereadcfg`, `define`, or `attr` pass-through is exposed.
+
+## Future tools
 - Broader Runtime View queries (Telnet adapters, arbitrary searches, bulk queries, and extended live tools)
 - get_device_state
 - get_readings
@@ -67,6 +70,6 @@ The returned object contains `device_name`, `get_option`, trimmed `get_parameter
 
 ## Out of scope
 - full FHEM-compatible parser
-- automatic production writes
+- automatic production configuration writes
 - uncontrolled live set commands
 - direct production rereadcfg

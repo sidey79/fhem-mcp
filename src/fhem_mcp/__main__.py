@@ -8,20 +8,6 @@ from .server import FhemMcpServer
 from .stdio_server import StdioMcpServer
 
 
-def _parse_allow_get_rule(value: str) -> tuple[str, str]:
-    device, separator, option = value.partition(":")
-    if not separator:
-        raise argparse.ArgumentTypeError("--allow-get must use DEVICE:OPTION")
-    try:
-        validated_device = FhemMcpServer._validate_live_device_name(device)
-        validated_option, first_option = FhemMcpServer._validate_live_get_parameters(option)
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError(str(exc)) from exc
-    if validated_option != first_option:
-        raise argparse.ArgumentTypeError("--allow-get OPTION must be one value without whitespace")
-    return validated_device, validated_option
-
-
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="fhem-mcp",
@@ -29,12 +15,16 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--config-root", type=Path, required=True, help="Root folder containing .cfg files")
     parser.add_argument(
-        "--allow-get",
-        action="append",
-        default=[],
-        type=_parse_allow_get_rule,
-        metavar="DEVICE:OPTION",
-        help="Allow an exact device-specific FHEM GET option (repeatable)",
+        "--enable-get",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Enable device-specific FHEM GET commands (authorization remains in FHEM)",
+    )
+    parser.add_argument(
+        "--enable-set",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Enable device-specific FHEM SET commands (authorization remains in FHEM)",
     )
 
     sub = parser.add_subparsers(dest="command", required=True)
@@ -97,7 +87,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     live_get = sub.add_parser(
         "run_live_get_http",
-        help="Run one allowlisted device-specific FHEM GET via HTTP",
+        help="Run one device-specific FHEM GET via enabled HTTP access",
     )
     live_get.add_argument("base_url", help="FHEM web endpoint, e.g. http://127.0.0.1:8083/fhem")
     live_get.add_argument("device_name", help="Literal FHEM device name")
@@ -108,6 +98,20 @@ def _build_parser() -> argparse.ArgumentParser:
     live_get.add_argument("--password", default=None, help="Optional basic auth password")
     live_get.add_argument("--ca-file", default=None, help="Optional CA bundle file for HTTPS verification")
     live_get.add_argument("--ca-path", default=None, help="Optional CA directory for HTTPS verification")
+
+    live_set = sub.add_parser(
+        "run_live_set_http",
+        help="Run one device-specific FHEM SET via enabled HTTP access",
+    )
+    live_set.add_argument("base_url", help="FHEM web endpoint, e.g. http://127.0.0.1:8083/fhem")
+    live_set.add_argument("device_name", help="Literal FHEM device name")
+    live_set.add_argument("set_parameters", help="Device-specific SET parameters, e.g. on or desired-temp 21")
+    live_set.add_argument("--fwcsrf", default=None, help="Optional FHEM CSRF token (otherwise fetched dynamically)")
+    live_set.add_argument("--timeout-seconds", type=float, default=5.0, help="HTTP timeout in seconds")
+    live_set.add_argument("--username", default=None, help="Optional basic auth username")
+    live_set.add_argument("--password", default=None, help="Optional basic auth password")
+    live_set.add_argument("--ca-file", default=None, help="Optional CA bundle file for HTTPS verification")
+    live_set.add_argument("--ca-path", default=None, help="Optional CA directory for HTTPS verification")
 
     observe_events = sub.add_parser("observe_live_events_http", help="Observe FHEMWEB Event Monitor via bounded HTTP raw event longpoll")
     observe_events.add_argument("base_url", help="FHEM web endpoint, e.g. http://127.0.0.1:8083/fhem")
@@ -180,11 +184,18 @@ def main() -> None:
     parser = _build_parser()
     args = parser.parse_args()
 
-    allow_get = frozenset(args.allow_get)
-    server = FhemMcpServer(config_root=args.config_root, allow_get=allow_get)
+    server = FhemMcpServer(
+        config_root=args.config_root,
+        enable_get=args.enable_get,
+        enable_set=args.enable_set,
+    )
 
     if args.command == "mcp-stdio":
-        StdioMcpServer(config_root=args.config_root, allow_get=allow_get).run(instream=__import__("sys").stdin.buffer, outstream=__import__("sys").stdout.buffer)
+        StdioMcpServer(
+            config_root=args.config_root,
+            enable_get=args.enable_get,
+            enable_set=args.enable_set,
+        ).run(instream=__import__("sys").stdin.buffer, outstream=__import__("sys").stdout.buffer)
         return
 
     if args.command == "list_config_files":
@@ -247,6 +258,18 @@ def main() -> None:
             args.base_url,
             args.device_name,
             args.get_parameters,
+            args.fwcsrf,
+            args.timeout_seconds,
+            args.username,
+            args.password,
+            args.ca_file,
+            args.ca_path,
+        )
+    elif args.command == "run_live_set_http":
+        result = server.run_live_set_http(
+            args.base_url,
+            args.device_name,
+            args.set_parameters,
             args.fwcsrf,
             args.timeout_seconds,
             args.username,
