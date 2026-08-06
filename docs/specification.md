@@ -17,6 +17,7 @@ Source View + Runtime View + Sandbox Validation.
 - list_live_logs_http(base_url, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?)
 - observe_live_events_http(base_url, duration_seconds?, event_monitor_filter? raw regex / TYPE=<type>, device_regex?, event_regex?, max_events?, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?)
 - get_live_device_http(base_url, device_name, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?)
+- run_live_get_http(base_url, device_name, get_parameters, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?)
 - list_devices
 - get_device
 - list_groups(relative_path?, group_name?)
@@ -49,6 +50,10 @@ An unknown device returns `null`. A matching device returns this normalized shap
 ```
 
 Malformed JSON, a missing `Results` member, a structurally invalid result, or more than one exact match is an error. The tool is read-only and must never issue `set`, `delete`, `shutdown`, `rereadcfg`, or another modifying command.
+
+`run_live_get_http` is active runtime access. The server constructs only `get <literal-device> <validated-parameters>` and sends it URL-encoded with `XHR=1` and optional `fwcsrf`. Except for exact `?`, the literal device and first whitespace-delimited GET option must exactly and case-sensitively match a startup `--allow-get DEVICE:OPTION` rule. Rules contain no wildcards or regular expressions and duplicates are deduplicated. Empty parameters, `devspec` device expressions, semicolons, NUL, line breaks, tabs, and other control characters are rejected before network access. `?` with additional arguments has no discovery exemption.
+
+The returned object contains `device_name`, `get_option`, trimmed `get_parameters`, and the unchanged FHEM response text. Module errors remain response text because generic success/error interpretation is not reliable. Connection, TLS, validation, and policy failures are tool errors. Module-specific GET handlers can block or have side effects, so this tool is opt-in and is not claimed to be universally read-only. It never exposes an arbitrary FHEM command or SET pass-through.
 
 ## Phase 2+ tools
 - Broader Runtime View queries (Telnet adapters, arbitrary searches, bulk queries, and extended live tools)

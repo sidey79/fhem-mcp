@@ -70,3 +70,10 @@ class CompactRuntimeDeviceDto(OutputModel):
     internals: dict[str, str | None] | None = None
     possible_sets: str | None = None
     possible_attributes: str | None = None
+
+
+class LiveGetResultDto(OutputModel):
+    device_name: str
+    get_option: str
+    get_parameters: str
+    response: str

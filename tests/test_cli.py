@@ -134,3 +134,15 @@ def test_compact_device_cli_forwards_output_options() -> None:
     server_class.return_value.get_device.assert_called_once_with(
         "fhem.cfg", "lamp", "compact", True, True
     )
+
+
+def test_run_live_get_http_cli_allowlist_contract_and_deduplication() -> None:
+    args = _build_parser().parse_args([
+        "--config-root", "tests/fixtures",
+        "--allow-get", "Weather:forecast",
+        "--allow-get", "Weather:forecast",
+        "run_live_get_http", "https://zeus:8088/fhem", "Weather", "forecast tomorrow",
+        "--fwcsrf", "token",
+    ])
+    assert frozenset(args.allow_get) == frozenset({("Weather", "forecast")})
+    assert args.get_parameters == "forecast tomorrow"

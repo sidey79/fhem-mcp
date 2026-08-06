@@ -443,3 +443,36 @@ def test_tools_call_read_live_log_http_paged_roundtrip() -> None:
     payload = json.loads(response["result"]["content"][0]["text"])
     assert payload["text"] == "2026.05.25 12:00:00 3: exact ERROR"
     assert payload["next_cursor"] == "1"
+
+
+def test_run_live_get_http_tool_roundtrip_and_strict_schema() -> None:
+    server = StdioMcpServer(
+        config_root=Path("tests/fixtures"),
+        allow_get=frozenset({("Weather", "forecast")}),
+    )
+    expected = {
+        "device_name": "Weather",
+        "get_option": "forecast",
+        "get_parameters": "forecast tomorrow",
+        "response": "sunny",
+    }
+    server.backend.run_live_get_http = lambda *args, **kwargs: expected
+    inp = io.StringIO(
+        json.dumps({
+            "jsonrpc": "2.0", "id": 91, "method": "tools/call",
+            "params": {"name": "run_live_get_http", "arguments": {
+                "base_url": "https://zeus:8088/fhem",
+                "device_name": "Weather",
+                "get_parameters": "forecast tomorrow",
+            }},
+        }) + "\n"
+    )
+    out = io.StringIO()
+    server.run(inp, out)
+    response = json.loads(out.getvalue())
+    assert json.loads(response["result"]["content"][0]["text"]) == expected
+
+    tools = server._tools()
+    schema = next(tool["inputSchema"] for tool in tools if tool["name"] == "run_live_get_http")
+    assert schema["additionalProperties"] is False
+    assert {"base_url", "device_name", "get_parameters"}.issubset(schema["required"])

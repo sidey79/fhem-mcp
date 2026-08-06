@@ -1,11 +1,11 @@
 # FHEM MCP Server
 
-Ein **read-only** MCP-Server, der FHEM-Konfigurationen und ausgewählte Laufzeitdaten sicher für AI-Agenten zugänglich macht. Die Architektur trennt statische Quelldateien bewusst vom autoritativen Zustand einer laufenden FHEM-Instanz.
+Ein sicherheitsorientierter MCP-Server, der FHEM-Konfigurationen und ausgewählte Laufzeitdaten sicher für AI-Agenten zugänglich macht. Die Architektur trennt statische Quelldateien bewusst vom autoritativen Zustand einer laufenden FHEM-Instanz.
 
 ## Architektur
 
 - **Source View:** Liest `fhem.cfg` und Include-Dateien für Quellzuordnung, Suche und Best-Effort-Validierung.
-- **Runtime View:** Fragt eine laufende FHEM-Instanz read-only über HTTP ab, etwa für Gerätezustand, Logs und Events.
+- **Runtime View:** Fragt eine laufende FHEM-Instanz über HTTP ab: passive Snapshots sowie explizit allowlist-gesteuerte, aktive Geräte-GETs.
 - **Sandbox Validation:** Ist für spätere Patch-Validierung vorgesehen; Produktions-FHEM wird nicht verändert.
 
 Der Parser bildet FHEM absichtlich nicht vollständig nach. FHEMs Parser ist mit der Ausführung von Befehlen und dem Aufbau von Perl-Laufzeitstrukturen gekoppelt; für den aktiven Zustand bleibt daher die Runtime View maßgeblich.
@@ -20,6 +20,7 @@ Der Parser bildet FHEM absichtlich nicht vollständig nach. FHEMs Parser ist mit
 - Quellpositions-Tracking (Datei + Zeilennummer)
 - Read-only Tool-Funktionen (kein Write/Apply)
 - Autoritativer Runtime-Snapshot eines einzelnen Geräts per FHEM-HTTP/`jsonlist2`
+- Opt-in Ausführung gerätespezifischer FHEM-GETs über eine exakte Allowlist
 - MCP Tool-Schemas sind über Pydantic-Modelle typisiert und werden als JSON-Schema für MCP generiert
 
 Nicht enthalten in Phase 1 (Phase 2+):
@@ -42,6 +43,7 @@ Nicht enthalten in Phase 1 (Phase 2+):
 | `list_live_logs_http(base_url, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?)` | Listet verfügbare Live-Logs read-only per FHEM-HTTP (`cmd=jsonlist2 TYPE=FileLog`) inkl. Log-Pattern und aktueller Datei je FileLog-Device. | `{"log_patterns":["./log/fhem-%Y-%m-%d.log"]}` |
 | `observe_live_events_http(base_url, duration_seconds?, event_monitor_filter?, device_regex?, event_regex?, max_events?, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?)` | Beobachtet den FHEMWEB Event Monitor read-only für eine begrenzte Zeit per HTTP-Longpoll (`inform=type=raw;filter=...;fmt=JSON`), nutzt einen Raw-Event-Regex (`TYPE=<type>` wird übersetzt) und liefert Events plus Zusammenfassung. | `{"event_count":2,"summary":{"devices":{"lamp":2}}}` |
 | `get_live_device_http(base_url, device_name, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?)` | Liest genau ein aktives Gerät read-only per FHEM-HTTP (`cmd=jsonlist2 <device_name>`). Freie `devspec`-Ausdrücke und FHEM-Befehle sind nicht erlaubt. | `{"name":"lamp","internals":{"TYPE":"dummy"},"attributes":{"room":"Living"},"readings":{"state":{"value":"on","time":"2026-07-15 12:00:00"}},"possible_sets":"off on","possible_attributes":"room alias"}` |
+| `run_live_get_http(base_url, device_name, get_parameters, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?)` | Führt einen gerätespezifischen aktiven FHEM-GET aus. Exakt `?` ist für literale Geräte immer erlaubt; andere Optionen benötigen beim Serverstart `--allow-get DEVICE:OPTION`. | `{"device_name":"Weather","get_option":"forecast","get_parameters":"forecast tomorrow","response":"sunny"}` |
 | `list_devices(relative_path)` | Listet Geräte aus Entry-Config inkl. Includes mit Typ und Source-Position. | `[{"name":"lamp","device_type":"dummy","source_file":".../fhem.cfg","source_line":2}]` |
 | `get_device(relative_path, device_name)` | Liefert ein Gerät mit `define`-Details und allen zugehörigen `attr`-Einträgen. | `{"name":"lamp","device_type":"dummy","attributes":[...]} ` |
 | `list_groups(relative_path?, group_name?)` | Wertet `attr <device> group ...` aus und gruppiert auf Gruppenname. | `{"Licht":["tempSensor"],"Klima":["tempSensor"]}` |
@@ -68,6 +70,19 @@ fhem-mcp \
 ```
 
 Der gleiche Aufruf steht MCP-Clients als Tool `get_live_device_http` zur Verfügung. Für geschützte Instanzen unterstützt das Tool zusätzlich Basic Auth, einen optionalen CSRF-Token und eigene CA-Pfade für TLS.
+
+### Allowlisted aktives FHEM-GET
+
+```bash
+fhem-mcp \
+  --config-root /ABSOLUTER/PFAD/ZU/DEINEN/FHEM/CONFIGS \
+  --allow-get Weather:forecast \
+  run_live_get_http https://fhem.example:8083/fhem Weather "forecast tomorrow"
+```
+
+`run_live_get_http` setzt ausschließlich `get <literal-device> <validated-parameters>` zusammen. Die erste GET-Option wird exakt und case-sensitiv mit der wiederholbaren Allowlist verglichen; Wildcards, `devspec`, Semikolon, NUL, Zeilenumbrüche und andere Steuerzeichen sind verboten. Exakt `?` ist ohne Allowlist zur Optionsabfrage erlaubt, `?` mit Argumenten dagegen nicht privilegiert. Die FHEM-Antwort wird unverändert in `response` geliefert.
+
+Dies ist **active runtime access** und nicht universell nebenwirkungsfrei: Ein FHEM-Modul kann auch in seinem GET-Handler blockieren oder Nebenwirkungen auslösen. Erlaubt werden sollten daher nur bekannte Geräte/Optionen. Das Tool ist kein freier Befehlsdurchreicher und unterstützt insbesondere kein `set`, `delete`, `shutdown` oder `rereadcfg`. `get_live_device_http` bleibt davon getrennt und liefert ausschließlich den passiven `jsonlist2`-Snapshot.
 
 ## Parser-Verhalten
 
