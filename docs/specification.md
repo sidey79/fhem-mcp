@@ -52,7 +52,7 @@ An unknown device returns `null`. A matching device returns this normalized shap
 
 Malformed JSON, a missing `Results` member, a structurally invalid result, or more than one exact match is an error. The tool is read-only and must never issue `set`, `delete`, `shutdown`, `rereadcfg`, or another modifying command.
 
-`run_live_get_http` and `run_live_set_http` are Phase 2 active runtime access. They are disabled by default and enabled independently at server startup with `--enable-get` and `--enable-set`. The server constructs only `get <literal-device> <validated-parameters>` or `set <literal-device> <validated-parameters>` and sends it URL-encoded with `XHR=1` and optional `fwcsrf`. Empty parameters, `devspec` device expressions, semicolons, NUL, line breaks, tabs, and other control characters are rejected before network access.
+`run_live_get_http` and `run_live_set_http` are Phase 2 active runtime access. This is an intentional extension beyond the unchanged Phase 1 read-only scope and requires explicit operator enablement. They are disabled by default and enabled independently at server startup with `--enable-get` and `--enable-set`. The server constructs only `get <literal-device> <validated-parameters>` or `set <literal-device> <validated-parameters>` and sends it URL-encoded with `XHR=1` and optional `fwcsrf`. Empty parameters, `devspec` device expressions, semicolons, NUL, line breaks, tabs, and other control characters are rejected before network access.
 
 Authorization is delegated to FHEM after global enablement. Deployments should use a dedicated FHEMWEB `apiWeb` instance protected by `allowed`, narrow `allowfrom`, HTTPS, authentication, and CSRF. The MCP server intentionally does not duplicate device- or option-level policy.
 

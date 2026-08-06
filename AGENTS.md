@@ -19,11 +19,20 @@ Phase 1 scope:
 - validate patches
 - no automatic production apply
 
+Phase 2 active runtime scope (explicit opt-in extension):
+- device-specific GET over HTTP, enabled only with the global `--enable-get` switch
+- device-specific SET over HTTP, enabled only with the independent global `--enable-set` switch
+- both active command families are disabled by default
+- FHEM `allowed` is the authoritative device/command authorization layer after enablement
+- only literal device names and validated device-specific parameters are accepted
+- no arbitrary FHEM command execution, `devspec`, `delete`, `shutdown`, `rereadcfg`, `define`, or `attr` pass-through
+
 Safety:
 - no uncontrolled shell execution
 - no direct set/delete/shutdown/rereadcfg in phase 1
-- all changes must be proposed as patches
-- every patch must be reversible
+- all Phase 1 configuration changes must be proposed as patches
+- every proposed patch must be reversible
+- Phase 2 SET changes runtime state only after explicit `--enable-set`; authorization remains in FHEM `allowed`
 - production FHEM must not be modified by tests
 
 Preferred stack:

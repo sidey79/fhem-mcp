@@ -74,6 +74,8 @@ Der gleiche Aufruf steht MCP-Clients als Tool `get_live_device_http` zur Verfüg
 
 ### Phase-2-Zugriff: aktive FHEM-GETs und -SETs
 
+Diese bewusst aufgenommene Phase-2-Erweiterung liegt außerhalb des weiterhin unveränderten Phase-1-Read-only-Scopes. Sie muss vom Betreiber ausdrücklich aktiviert werden.
+
 GET und SET sind standardmäßig deaktiviert und werden unabhängig beim Serverstart freigeschaltet:
 
 ```bash

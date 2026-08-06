@@ -18,13 +18,13 @@ def _build_parser() -> argparse.ArgumentParser:
         "--enable-get",
         action=argparse.BooleanOptionalAction,
         default=False,
-        help="Enable device-specific FHEM GET commands (authorization remains in FHEM)",
+        help="Enable Phase 2 device-specific FHEM GET commands (authorization remains in FHEM)",
     )
     parser.add_argument(
         "--enable-set",
         action=argparse.BooleanOptionalAction,
         default=False,
-        help="Enable device-specific FHEM SET commands (authorization remains in FHEM)",
+        help="Enable Phase 2 device-specific FHEM SET commands (authorization remains in FHEM)",
     )
 
     sub = parser.add_subparsers(dest="command", required=True)
@@ -87,7 +87,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     live_get = sub.add_parser(
         "run_live_get_http",
-        help="Run one device-specific FHEM GET via enabled HTTP access",
+        help="Phase 2: run one device-specific FHEM GET when globally enabled",
     )
     live_get.add_argument("base_url", help="FHEM web endpoint, e.g. http://127.0.0.1:8083/fhem")
     live_get.add_argument("device_name", help="Literal FHEM device name")
@@ -101,7 +101,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     live_set = sub.add_parser(
         "run_live_set_http",
-        help="Run one device-specific FHEM SET via enabled HTTP access",
+        help="Phase 2: run one device-specific FHEM SET when globally enabled",
     )
     live_set.add_argument("base_url", help="FHEM web endpoint, e.g. http://127.0.0.1:8083/fhem")
     live_set.add_argument("device_name", help="Literal FHEM device name")
