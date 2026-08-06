@@ -14,13 +14,20 @@ from pathlib import Path
 from time import monotonic
 from urllib.parse import ParseResult, quote_plus, urlparse
 import re
-from urllib.request import Request, urlopen
+from urllib.request import BaseHandler, HTTPRedirectHandler, HTTPSHandler, Request, build_opener, urlopen
 from typing import Literal
 
 from .models import FhemAttribute, FhemDevice, FhemEvent
 from .output_mapper import device_to_compact, rows_to_table
 from .output_models import LiveGetResultDto, LiveSetResultDto, RawLogPageDto, ResponseMetaDto
 from .parser import FhemConfigParser, IncludeDirective
+
+
+class RejectRedirectHandler(HTTPRedirectHandler):
+    """Reject redirects so active commands cannot leave their approved origin."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
 
 
 @dataclass(frozen=True)
@@ -326,6 +333,27 @@ class FhemMcpServer:
             return ""
         return token.strip()
 
+    def _fetch_fwcsrf_http_no_redirects(
+        self,
+        base_url: str,
+        timeout_seconds: float,
+        username: str | None,
+        password: str | None,
+        ssl_context: SSLContext | None,
+    ) -> str:
+        token_url = self._build_live_request(base_url, ["XHR=1"])
+        request = Request(token_url, method="GET")
+        self._request_with_optional_auth(request, username, password)
+        handlers: list[BaseHandler] = [RejectRedirectHandler()]
+        if ssl_context is not None:
+            handlers.append(HTTPSHandler(context=ssl_context))
+        opener = build_opener(*handlers)
+        with opener.open(request, timeout=timeout_seconds) as response:
+            token = response.headers.get("X-FHEM-csrfToken")
+        if token is None or not token.strip():
+            return ""
+        return token.strip()
+
     @staticmethod
     def _build_live_request(base_url: str, query_parts: list[str]) -> str:
         separator = "&" if "?" in base_url else "?"
@@ -352,6 +380,24 @@ class FhemMcpServer:
         else:
             response_ctx = urlopen(request, timeout=timeout_seconds, context=ssl_context)
         with response_ctx as response:
+            payload = response.read()
+        return payload.decode("utf-8", errors="replace")
+
+    def _http_get_text_no_redirects(
+        self,
+        request_url: str,
+        timeout_seconds: float,
+        username: str | None,
+        password: str | None,
+        ssl_context: SSLContext | None,
+    ) -> str:
+        request = Request(request_url, method="GET")
+        self._request_with_optional_auth(request, username, password)
+        handlers: list[BaseHandler] = [RejectRedirectHandler()]
+        if ssl_context is not None:
+            handlers.append(HTTPSHandler(context=ssl_context))
+        opener = build_opener(*handlers)
+        with opener.open(request, timeout=timeout_seconds) as response:
             payload = response.read()
         return payload.decode("utf-8", errors="replace")
 
@@ -1015,7 +1061,7 @@ class FhemMcpServer:
             raise ValueError("username and password must be provided together")
 
         ssl_context = self._build_tls_context(ca_file, ca_path)
-        token = fwcsrf if fwcsrf is not None else self._fetch_fwcsrf_http(
+        token = fwcsrf if fwcsrf is not None else self._fetch_fwcsrf_http_no_redirects(
             base_url, timeout_seconds, username, password, ssl_context
         )
         command = f"get {target_device} {parameters}"
@@ -1023,7 +1069,7 @@ class FhemMcpServer:
         if token:
             query_parts.append(f"fwcsrf={quote_plus(token)}")
         request_url = self._build_live_request(base_url, query_parts)
-        response = self._http_get_text(
+        response = self._http_get_text_no_redirects(
             request_url, timeout_seconds, username, password, ssl_context
         )
         return LiveGetResultDto(
@@ -1055,7 +1101,7 @@ class FhemMcpServer:
             raise ValueError("username and password must be provided together")
 
         ssl_context = self._build_tls_context(ca_file, ca_path)
-        token = fwcsrf if fwcsrf is not None else self._fetch_fwcsrf_http(
+        token = fwcsrf if fwcsrf is not None else self._fetch_fwcsrf_http_no_redirects(
             base_url, timeout_seconds, username, password, ssl_context
         )
         command = f"set {target_device} {parameters}"
@@ -1063,7 +1109,7 @@ class FhemMcpServer:
         if token:
             query_parts.append(f"fwcsrf={quote_plus(token)}")
         request_url = self._build_live_request(base_url, query_parts)
-        response = self._http_get_text(
+        response = self._http_get_text_no_redirects(
             request_url, timeout_seconds, username, password, ssl_context
         )
         return LiveSetResultDto(

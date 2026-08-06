@@ -25,6 +25,7 @@ Phase 2 active runtime scope (explicit opt-in extension):
 - both active command families are disabled by default
 - enabling either command family requires one operator-approved `active_runtime_base_url` fixed at server startup
 - MCP callers cannot select or override the active-runtime endpoint
+- active-runtime CSRF and command requests must reject HTTP redirects
 - FHEM `allowed` is the authoritative device/command authorization layer after enablement
 - only literal device names and validated device-specific parameters are accepted
 - no arbitrary FHEM command execution, `devspec`, `delete`, `shutdown`, `rereadcfg`, `define`, or `attr` pass-through
