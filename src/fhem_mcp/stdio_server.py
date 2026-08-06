@@ -16,6 +16,7 @@ class StdioMcpServer:
     config_root: Path
     enable_get: bool = False
     enable_set: bool = False
+    active_runtime_base_url: str | None = None
     SUPPORTED_PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
     DEFAULT_PROTOCOL_VERSION = "2024-11-05"
 
@@ -24,6 +25,7 @@ class StdioMcpServer:
             config_root=self.config_root,
             enable_get=self.enable_get,
             enable_set=self.enable_set,
+            active_runtime_base_url=self.active_runtime_base_url,
         )
 
     def run(self, instream: BinaryIO | TextIO, outstream: BinaryIO | TextIO) -> None:
@@ -281,7 +283,6 @@ class StdioMcpServer:
             )
         elif tool_name == "run_live_get_http":
             payload = self.backend.run_live_get_http(
-                arguments["base_url"],
                 arguments["device_name"],
                 arguments["get_parameters"],
                 arguments.get("fwcsrf"),
@@ -293,7 +294,6 @@ class StdioMcpServer:
             )
         elif tool_name == "run_live_set_http":
             payload = self.backend.run_live_set_http(
-                arguments["base_url"],
                 arguments["device_name"],
                 arguments["set_parameters"],
                 arguments.get("fwcsrf"),

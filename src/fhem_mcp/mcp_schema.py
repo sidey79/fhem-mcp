@@ -118,11 +118,21 @@ class GetLiveDeviceHttpArgs(ListLiveLogsHttpArgs):
     device_name: str
 
 
-class RunLiveGetHttpArgs(GetLiveDeviceHttpArgs):
+class ActiveRuntimeHttpArgs(StrictModel):
+    device_name: str
+    fwcsrf: str | None = None
+    timeout_seconds: float = 5.0
+    username: str | None = None
+    password: str | None = None
+    ca_file: str | None = None
+    ca_path: str | None = None
+
+
+class RunLiveGetHttpArgs(ActiveRuntimeHttpArgs):
     get_parameters: str
 
 
-class RunLiveSetHttpArgs(GetLiveDeviceHttpArgs):
+class RunLiveSetHttpArgs(ActiveRuntimeHttpArgs):
     set_parameters: str
 
 

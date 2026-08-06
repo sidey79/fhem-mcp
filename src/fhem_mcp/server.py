@@ -41,11 +41,19 @@ class FhemMcpServer:
         config_root: Path,
         enable_get: bool = False,
         enable_set: bool = False,
+        active_runtime_base_url: str | None = None,
     ) -> None:
         self.config_root = config_root.resolve()
         self.parser = FhemConfigParser()
         self.enable_get = enable_get
         self.enable_set = enable_set
+        if (enable_get or enable_set) and active_runtime_base_url is None:
+            raise ValueError(
+                "active_runtime_base_url is required when GET or SET is enabled"
+            )
+        if active_runtime_base_url is not None:
+            self._validate_live_base_url(active_runtime_base_url)
+        self.active_runtime_base_url = active_runtime_base_url
 
     def _resolve_in_root(self, relative_path: str) -> Path:
         target = (self.config_root / relative_path).resolve()
@@ -989,7 +997,6 @@ class FhemMcpServer:
 
     def run_live_get_http(
         self,
-        base_url: str,
         device_name: str,
         get_parameters: str,
         fwcsrf: str | None = None,
@@ -999,11 +1006,9 @@ class FhemMcpServer:
         ca_file: str | None = None,
         ca_path: str | None = None,
     ) -> dict[str, str]:
-        self._validate_live_base_url(base_url)
+        base_url = self._active_runtime_url("GET", self.enable_get)
         target_device = self._validate_live_device_name(device_name)
         parameters, get_option = self._validate_live_get_parameters(get_parameters)
-        if not self.enable_get:
-            raise ValueError("FHEM GET commands are disabled; start the server with --enable-get")
         if timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be > 0")
         if (username is None) != (password is None):
@@ -1030,7 +1035,6 @@ class FhemMcpServer:
 
     def run_live_set_http(
         self,
-        base_url: str,
         device_name: str,
         set_parameters: str,
         fwcsrf: str | None = None,
@@ -1040,13 +1044,11 @@ class FhemMcpServer:
         ca_file: str | None = None,
         ca_path: str | None = None,
     ) -> dict[str, str]:
-        self._validate_live_base_url(base_url)
+        base_url = self._active_runtime_url("SET", self.enable_set)
         target_device = self._validate_live_device_name(device_name)
         parameters, set_option = self._validate_live_command_parameters(
             set_parameters, "set_parameters"
         )
-        if not self.enable_set:
-            raise ValueError("FHEM SET commands are disabled; start the server with --enable-set")
         if timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be > 0")
         if (username is None) != (password is None):
@@ -1070,6 +1072,15 @@ class FhemMcpServer:
             set_parameters=parameters,
             response=response,
         ).model_dump()
+
+    def _active_runtime_url(self, command: str, enabled: bool) -> str:
+        if not enabled:
+            raise ValueError(
+                f"FHEM {command} commands are disabled; start the server with --enable-{command.lower()}"
+            )
+        if self.active_runtime_base_url is None:
+            raise ValueError("active_runtime_base_url is not configured")
+        return self.active_runtime_base_url
 
     @staticmethod
     def _validate_live_command_parameters(

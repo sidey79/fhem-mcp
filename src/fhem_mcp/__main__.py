@@ -26,6 +26,11 @@ def _build_parser() -> argparse.ArgumentParser:
         default=False,
         help="Enable Phase 2 device-specific FHEM SET commands (authorization remains in FHEM)",
     )
+    parser.add_argument(
+        "--active-runtime-base-url",
+        default=None,
+        help="Operator-approved FHEMWEB endpoint for enabled Phase 2 GET/SET commands",
+    )
 
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("mcp-stdio", help="Run JSON-RPC MCP server over stdio")
@@ -89,7 +94,6 @@ def _build_parser() -> argparse.ArgumentParser:
         "run_live_get_http",
         help="Phase 2: run one device-specific FHEM GET when globally enabled",
     )
-    live_get.add_argument("base_url", help="FHEM web endpoint, e.g. http://127.0.0.1:8083/fhem")
     live_get.add_argument("device_name", help="Literal FHEM device name")
     live_get.add_argument("get_parameters", help="Device-specific GET parameters, e.g. forecast tomorrow")
     live_get.add_argument("--fwcsrf", default=None, help="Optional FHEM CSRF token (otherwise fetched dynamically)")
@@ -103,7 +107,6 @@ def _build_parser() -> argparse.ArgumentParser:
         "run_live_set_http",
         help="Phase 2: run one device-specific FHEM SET when globally enabled",
     )
-    live_set.add_argument("base_url", help="FHEM web endpoint, e.g. http://127.0.0.1:8083/fhem")
     live_set.add_argument("device_name", help="Literal FHEM device name")
     live_set.add_argument("set_parameters", help="Device-specific SET parameters, e.g. on or desired-temp 21")
     live_set.add_argument("--fwcsrf", default=None, help="Optional FHEM CSRF token (otherwise fetched dynamically)")
@@ -188,6 +191,7 @@ def main() -> None:
         config_root=args.config_root,
         enable_get=args.enable_get,
         enable_set=args.enable_set,
+        active_runtime_base_url=args.active_runtime_base_url,
     )
 
     if args.command == "mcp-stdio":
@@ -195,6 +199,7 @@ def main() -> None:
             config_root=args.config_root,
             enable_get=args.enable_get,
             enable_set=args.enable_set,
+        active_runtime_base_url=args.active_runtime_base_url,
         ).run(instream=__import__("sys").stdin.buffer, outstream=__import__("sys").stdout.buffer)
         return
 
@@ -255,7 +260,6 @@ def main() -> None:
         )
     elif args.command == "run_live_get_http":
         result = server.run_live_get_http(
-            args.base_url,
             args.device_name,
             args.get_parameters,
             args.fwcsrf,
@@ -267,7 +271,6 @@ def main() -> None:
         )
     elif args.command == "run_live_set_http":
         result = server.run_live_set_http(
-            args.base_url,
             args.device_name,
             args.set_parameters,
             args.fwcsrf,

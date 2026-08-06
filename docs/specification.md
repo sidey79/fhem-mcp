@@ -17,8 +17,8 @@ Source View + Runtime View + Sandbox Validation.
 - list_live_logs_http(base_url, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?)
 - observe_live_events_http(base_url, duration_seconds?, event_monitor_filter? raw regex / TYPE=<type>, device_regex?, event_regex?, max_events?, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?)
 - get_live_device_http(base_url, device_name, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?)
-- run_live_get_http(base_url, device_name, get_parameters, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?)
-- run_live_set_http(base_url, device_name, set_parameters, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?)
+- run_live_get_http(device_name, get_parameters, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?)
+- run_live_set_http(device_name, set_parameters, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?)
 - list_devices
 - get_device
 - list_groups(relative_path?, group_name?)
@@ -52,9 +52,9 @@ An unknown device returns `null`. A matching device returns this normalized shap
 
 Malformed JSON, a missing `Results` member, a structurally invalid result, or more than one exact match is an error. The tool is read-only and must never issue `set`, `delete`, `shutdown`, `rereadcfg`, or another modifying command.
 
-`run_live_get_http` and `run_live_set_http` are Phase 2 active runtime access. This is an intentional extension beyond the unchanged Phase 1 read-only scope and requires explicit operator enablement. They are disabled by default and enabled independently at server startup with `--enable-get` and `--enable-set`. The server constructs only `get <literal-device> <validated-parameters>` or `set <literal-device> <validated-parameters>` and sends it URL-encoded with `XHR=1` and optional `fwcsrf`. Empty parameters, `devspec` device expressions, semicolons, NUL, line breaks, tabs, and other control characters are rejected before network access.
+`run_live_get_http` and `run_live_set_http` are Phase 2 active runtime access. This is an intentional extension beyond the unchanged Phase 1 read-only scope and requires explicit operator enablement. They are disabled by default and enabled independently at server startup with `--enable-get` and `--enable-set`. Enabling either requires an operator-approved `--active-runtime-base-url`; startup fails without it, and active tool schemas do not expose `base_url`. The server constructs only `get <literal-device> <validated-parameters>` or `set <literal-device> <validated-parameters>` and sends it URL-encoded with `XHR=1` and optional `fwcsrf`. Empty parameters, `devspec` device expressions, semicolons, NUL, line breaks, tabs, and other control characters are rejected before network access.
 
-Authorization is delegated to FHEM after global enablement. Deployments should use a dedicated FHEMWEB `apiWeb` instance protected by `allowed`, narrow `allowfrom`, HTTPS, authentication, and CSRF. The MCP server intentionally does not duplicate device- or option-level policy.
+Authorization is delegated to FHEM after global enablement. The active-runtime endpoint is immutable for the server lifetime and cannot be selected or overridden by MCP callers. Deployments should use a dedicated FHEMWEB `apiWeb` instance protected by `allowed`, narrow `allowfrom`, HTTPS, authentication, and CSRF. The MCP server intentionally does not duplicate device- or option-level policy.
 
 GET results and SET results contain the literal device name, first option, trimmed parameters, and unchanged FHEM response text. Module errors remain response text because generic success/error interpretation is not reliable. Connection, TLS, validation, and disabled-feature failures are tool errors. GET handlers can block or have side effects; SET explicitly changes runtime state. No arbitrary FHEM command, `delete`, `shutdown`, `rereadcfg`, `define`, or `attr` pass-through is exposed.
 

@@ -1171,7 +1171,11 @@ def test_read_live_log_http_cursor_rejects_changed_query_or_anchor() -> None:
 
 
 def test_run_live_get_http_enabled_transport_and_response() -> None:
-    server = FhemMcpServer(config_root=Path("tests/fixtures"), enable_get=True)
+    server = FhemMcpServer(
+        config_root=Path("tests/fixtures"),
+        enable_get=True,
+        active_runtime_base_url="https://zeus:8088/fhem",
+    )
 
     class _Resp:
         headers: dict[str, str] = {}
@@ -1189,7 +1193,7 @@ def test_run_live_get_http_enabled_transport_and_response() -> None:
         "fhem_mcp.server.urlopen", return_value=_Resp()
     ) as mocked_urlopen:
         result = server.run_live_get_http(
-            "https://zeus:8088/fhem", "Weather", "  forecast tomorrow  ",
+            "Weather", "  forecast tomorrow  ",
             fwcsrf="csrf token", timeout_seconds=2.5, username="alice",
             password="secret", ca_file="/certs/ca.pem",
         )
@@ -1206,16 +1210,30 @@ def test_run_live_get_http_enabled_transport_and_response() -> None:
 
 
 def test_run_live_set_http_enabled_transport_and_response() -> None:
-    server = FhemMcpServer(config_root=Path("tests/fixtures"), enable_set=True)
+    server = FhemMcpServer(
+        config_root=Path("tests/fixtures"),
+        enable_set=True,
+        active_runtime_base_url="http://fhem:8083/fhem",
+    )
     with patch.object(server, "_http_get_text", return_value="") as request:
         result = server.run_live_set_http(
-            "http://fhem:8083/fhem", "lamp", "  desired-temp 21.5  ", fwcsrf="token"
+            "lamp", "  desired-temp 21.5  ", fwcsrf="token"
         )
     assert result == {
         "device_name": "lamp", "set_option": "desired-temp",
         "set_parameters": "desired-temp 21.5", "response": "",
     }
     assert "cmd=set+lamp+desired-temp+21.5&XHR=1&fwcsrf=token" in request.call_args.args[0]
+
+
+def test_active_commands_require_operator_approved_endpoint() -> None:
+    for switch in ({"enable_get": True}, {"enable_set": True}):
+        try:
+            FhemMcpServer(config_root=Path("tests/fixtures"), **switch)
+        except ValueError as exc:
+            assert "active_runtime_base_url is required" in str(exc)
+        else:
+            raise AssertionError("Expected enabled active command without endpoint to fail")
 
 
 def test_live_get_and_set_are_disabled_by_default_before_network() -> None:
@@ -1227,7 +1245,7 @@ def test_live_get_and_set_are_disabled_by_default_before_network() -> None:
     for method, parameters, switch in calls:
         with patch("fhem_mcp.server.urlopen") as no_network:
             try:
-                method("http://fhem:8083/fhem", "lamp", parameters, fwcsrf=None)
+                method("lamp", parameters, fwcsrf=None)
             except ValueError as exc:
                 assert switch in str(exc)
             else:
@@ -1237,14 +1255,15 @@ def test_live_get_and_set_are_disabled_by_default_before_network() -> None:
 
 def test_live_get_and_set_reject_unsafe_inputs_before_network() -> None:
     server = FhemMcpServer(
-        config_root=Path("tests/fixtures"), enable_get=True, enable_set=True
+        config_root=Path("tests/fixtures"), enable_get=True, enable_set=True,
+        active_runtime_base_url="http://fhem:8083/fhem",
     )
     unsafe = ("", "   ", "status;shutdown", "status\nshutdown", "status\targ", "status\0arg", "status\x7farg")
     for method in (server.run_live_get_http, server.run_live_set_http):
         for parameters in unsafe:
             with patch("fhem_mcp.server.urlopen") as no_network:
                 try:
-                    method("http://fhem:8083/fhem", "lamp", parameters, fwcsrf=None)
+                    method("lamp", parameters, fwcsrf=None)
                 except ValueError:
                     pass
                 else:
@@ -1254,7 +1273,7 @@ def test_live_get_and_set_reject_unsafe_inputs_before_network() -> None:
         for device in ("", "TYPE=dummy", "lamp;shutdown", "lamp other"):
             with patch("fhem_mcp.server.urlopen") as no_network:
                 try:
-                    method("http://fhem:8083/fhem", device, "status", fwcsrf=None)
+                    method(device, "status", fwcsrf=None)
                 except ValueError:
                     pass
                 else:

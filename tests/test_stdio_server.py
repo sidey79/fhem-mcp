@@ -447,7 +447,8 @@ def test_tools_call_read_live_log_http_paged_roundtrip() -> None:
 
 def test_live_get_and_set_tool_roundtrip_and_strict_schema() -> None:
     server = StdioMcpServer(
-        config_root=Path("tests/fixtures"), enable_get=True, enable_set=True
+        config_root=Path("tests/fixtures"), enable_get=True, enable_set=True,
+        active_runtime_base_url="https://zeus:8088/fhem",
     )
     expected_get = {
         "device_name": "Weather", "get_option": "forecast",
@@ -462,12 +463,12 @@ def test_live_get_and_set_tool_roundtrip_and_strict_schema() -> None:
     requests = [
         {"jsonrpc": "2.0", "id": 91, "method": "tools/call", "params": {
             "name": "run_live_get_http", "arguments": {
-                "base_url": "https://zeus:8088/fhem", "device_name": "Weather",
+                "device_name": "Weather",
                 "get_parameters": "forecast tomorrow",
             }}},
         {"jsonrpc": "2.0", "id": 92, "method": "tools/call", "params": {
             "name": "run_live_set_http", "arguments": {
-                "base_url": "https://zeus:8088/fhem", "device_name": "lamp",
+                "device_name": "lamp",
                 "set_parameters": "on",
             }}},
     ]
@@ -481,4 +482,5 @@ def test_live_get_and_set_tool_roundtrip_and_strict_schema() -> None:
     tools = {tool["name"]: tool["inputSchema"] for tool in server._tools()}
     for name, parameter in (("run_live_get_http", "get_parameters"), ("run_live_set_http", "set_parameters")):
         assert tools[name]["additionalProperties"] is False
-        assert {"base_url", "device_name", parameter}.issubset(tools[name]["required"])
+        assert {"device_name", parameter}.issubset(tools[name]["required"])
+        assert "base_url" not in tools[name]["properties"]

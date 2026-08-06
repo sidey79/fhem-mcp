@@ -43,8 +43,8 @@ Nicht enthalten:
 | `list_live_logs_http(base_url, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?)` | Listet verfügbare Live-Logs read-only per FHEM-HTTP (`cmd=jsonlist2 TYPE=FileLog`) inkl. Log-Pattern und aktueller Datei je FileLog-Device. | `{"log_patterns":["./log/fhem-%Y-%m-%d.log"]}` |
 | `observe_live_events_http(base_url, duration_seconds?, event_monitor_filter?, device_regex?, event_regex?, max_events?, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?)` | Beobachtet den FHEMWEB Event Monitor read-only für eine begrenzte Zeit per HTTP-Longpoll (`inform=type=raw;filter=...;fmt=JSON`), nutzt einen Raw-Event-Regex (`TYPE=<type>` wird übersetzt) und liefert Events plus Zusammenfassung. | `{"event_count":2,"summary":{"devices":{"lamp":2}}}` |
 | `get_live_device_http(base_url, device_name, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?)` | Liest genau ein aktives Gerät read-only per FHEM-HTTP (`cmd=jsonlist2 <device_name>`). Freie `devspec`-Ausdrücke und FHEM-Befehle sind nicht erlaubt. | `{"name":"lamp","internals":{"TYPE":"dummy"},"attributes":{"room":"Living"},"readings":{"state":{"value":"on","time":"2026-07-15 12:00:00"}},"possible_sets":"off on","possible_attributes":"room alias"}` |
-| `run_live_get_http(base_url, device_name, get_parameters, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?)` | Führt bei globalem `--enable-get` einen gerätespezifischen FHEM-GET aus; FHEM/`allowed` autorisiert den Zugriff. | `{"device_name":"Weather","get_option":"forecast","get_parameters":"forecast tomorrow","response":"sunny"}` |
-| `run_live_set_http(base_url, device_name, set_parameters, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?)` | Führt bei globalem `--enable-set` einen gerätespezifischen FHEM-SET aus; FHEM/`allowed` autorisiert den Zugriff. | `{"device_name":"lamp","set_option":"on","set_parameters":"on","response":""}` |
+| `run_live_get_http(device_name, get_parameters, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?)` | Führt bei globalem `--enable-get` einen gerätespezifischen FHEM-GET aus; FHEM/`allowed` autorisiert den Zugriff. | `{"device_name":"Weather","get_option":"forecast","get_parameters":"forecast tomorrow","response":"sunny"}` |
+| `run_live_set_http(device_name, set_parameters, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?)` | Führt bei globalem `--enable-set` einen gerätespezifischen FHEM-SET aus; FHEM/`allowed` autorisiert den Zugriff. | `{"device_name":"lamp","set_option":"on","set_parameters":"on","response":""}` |
 | `list_devices(relative_path)` | Listet Geräte aus Entry-Config inkl. Includes mit Typ und Source-Position. | `[{"name":"lamp","device_type":"dummy","source_file":".../fhem.cfg","source_line":2}]` |
 | `get_device(relative_path, device_name)` | Liefert ein Gerät mit `define`-Details und allen zugehörigen `attr`-Einträgen. | `{"name":"lamp","device_type":"dummy","attributes":[...]} ` |
 | `list_groups(relative_path?, group_name?)` | Wertet `attr <device> group ...` aus und gruppiert auf Gruppenname. | `{"Licht":["tempSensor"],"Klima":["tempSensor"]}` |
@@ -76,25 +76,27 @@ Der gleiche Aufruf steht MCP-Clients als Tool `get_live_device_http` zur Verfüg
 
 Diese bewusst aufgenommene Phase-2-Erweiterung liegt außerhalb des weiterhin unveränderten Phase-1-Read-only-Scopes. Sie muss vom Betreiber ausdrücklich aktiviert werden.
 
-GET und SET sind standardmäßig deaktiviert und werden unabhängig beim Serverstart freigeschaltet:
+GET und SET sind standardmäßig deaktiviert und werden unabhängig beim Serverstart freigeschaltet: Sobald einer der Schalter aktiv ist, muss der Betreiber denselben Startprozess mit `--active-runtime-base-url` fest an den vorgesehenen, durch `allowed` geschützten FHEMWEB-Endpunkt binden.
 
 ```bash
 # GET aktivieren
 fhem-mcp \
   --config-root /ABSOLUTER/PFAD/ZU/DEINEN/FHEM/CONFIGS \
   --enable-get \
-  run_live_get_http https://fhem.example:8083/fhem Weather "forecast tomorrow"
+  --active-runtime-base-url https://fhem.example:8083/fhem \
+  run_live_get_http Weather "forecast tomorrow"
 
 # SET aktivieren
 fhem-mcp \
   --config-root /ABSOLUTER/PFAD/ZU/DEINEN/FHEM/CONFIGS \
   --enable-set \
-  run_live_set_http https://fhem.example:8083/fhem lamp "on"
+  --active-runtime-base-url https://fhem.example:8083/fhem \
+  run_live_set_http lamp "on"
 ```
 
 Die Schalter gelten ebenso für `mcp-stdio`. Der MCP-Server setzt ausschließlich `get <literal-device> <validated-parameters>` beziehungsweise `set <literal-device> <validated-parameters>` zusammen. Freie `devspec`, Semikolon, NUL, Zeilenumbrüche und andere Steuerzeichen sind verboten. Die FHEM-Antwort wird unverändert in `response` geliefert.
 
-Nach der globalen Aktivierung übernimmt FHEM die Autorisierung. Für externe Automation wird eine dedizierte FHEMWEB-Instanz (`apiWeb`) empfohlen, die durch ein `allowed`-Device auf die gewünschten Benutzer, Geräte und Befehle begrenzt ist. Zusätzlich sollten `allowfrom`, HTTPS, Basic Auth und CSRF-Schutz passend konfiguriert bleiben. Der MCP-Server bildet diese FHEM-Policy bewusst nicht nach.
+Nach der globalen Aktivierung übernimmt FHEM die Autorisierung. MCP-Aufrufer können diesen gebundenen Endpoint weder auswählen noch überschreiben. Für externe Automation wird eine dedizierte FHEMWEB-Instanz (`apiWeb`) empfohlen, die durch ein `allowed`-Device auf die gewünschten Benutzer, Geräte und Befehle begrenzt ist. Zusätzlich sollten `allowfrom`, HTTPS, Basic Auth und CSRF-Schutz passend konfiguriert bleiben. Der MCP-Server bildet diese FHEM-Policy bewusst nicht nach.
 
 GET ist nicht universell nebenwirkungsfrei; SET verändert den FHEM-Laufzeitzustand ausdrücklich. Beide sind **active runtime access**. `get_live_device_http` bleibt davon getrennt und liefert ausschließlich einen passiven `jsonlist2`-Snapshot. Andere FHEM-Kommandos wie `delete`, `shutdown`, `rereadcfg`, `define` oder `attr` werden nicht angeboten.
 
