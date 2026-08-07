@@ -27,7 +27,7 @@ def test_deployment_versions_are_synchronized() -> None:
     stdio_server = (ROOT / "src" / "fhem_mcp" / "stdio_server.py").read_text()
     assert f"version: {version}" in manifest
     assert f"ghcr.io/sidey79/fhem-mcp:{version}" in manifest
-    assert f"image: fhem-mcp:{version}" in compose
+    assert f"image: ghcr.io/sidey79/fhem-mcp:{version}" in compose
     assert f'"version": "{version}"' in stdio_server
 
 

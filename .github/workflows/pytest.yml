@@ -97,7 +97,7 @@ jobs:
           platforms: linux/amd64
           tags: |
             local/fhem-mcp:trivy-scan
-            fhem-mcp:${{ steps.version.outputs.value }}
+            ghcr.io/sidey79/fhem-mcp:${{ steps.version.outputs.value }}
 
       - name: Run Trivy scan
         if: matrix.platform == 'linux/amd64'
@@ -147,7 +147,7 @@ jobs:
         env:
           FHEM_CONFIG_PATH: ${{ github.workspace }}/tests/fixtures
         run: |
-          response=$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"docker-smoke","version":"1"}}}' | docker run --rm -i -v "${{ github.workspace }}/tests/fixtures:/config:ro" "fhem-mcp:${{ steps.version.outputs.value }}" --config-root /config mcp-stdio)
+          response=$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"docker-smoke","version":"1"}}}' | docker run --rm -i -v "${{ github.workspace }}/tests/fixtures:/config:ro" "ghcr.io/sidey79/fhem-mcp:${{ steps.version.outputs.value }}" --config-root /config mcp-stdio)
           grep -q '"name": *"fhem-mcp"' <<< "$response"
 
       - name: Stop Streamable HTTP bridge
