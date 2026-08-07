@@ -1,0 +1,46 @@
+services:
+  fhem-mcp-http:
+    image: ghcr.io/sidey79/fhem-mcp:0.10.0
+    build:
+      context: .
+      dockerfile: Dockerfile
+    entrypoint:
+      - mcp-proxy
+    command:
+      - --host=0.0.0.0
+      - --port=8000
+      - --no-stateless
+      - --
+      - fhem-mcp
+      - --config-root
+      - /config
+      - mcp-stdio
+    volumes:
+      - type: bind
+        source: ${FHEM_CONFIG_PATH:?Set FHEM_CONFIG_PATH to an absolute FHEM config directory}
+        target: /config
+        read_only: true
+    networks:
+      - fhem-mcp
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/status', timeout=2).read()"
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+networks:
+  fhem-mcp:
+    name: fhem-mcp

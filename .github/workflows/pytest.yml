@@ -95,7 +95,9 @@ jobs:
           file: ./Dockerfile
           load: true
           platforms: linux/amd64
-          tags: local/fhem-mcp:trivy-scan
+          tags: |
+            local/fhem-mcp:trivy-scan
+            ghcr.io/sidey79/fhem-mcp:${{ steps.version.outputs.value }}
 
       - name: Run Trivy scan
         if: matrix.platform == 'linux/amd64'
@@ -107,6 +109,52 @@ jobs:
           severity: CRITICAL,HIGH
           ignore-unfixed: true
           vuln-type: os,library
+
+      - name: Validate Compose configuration
+        if: matrix.platform == 'linux/amd64'
+        env:
+          FHEM_CONFIG_PATH: ${{ github.workspace }}/tests/fixtures
+        run: docker compose config --quiet
+
+      - name: Start Streamable HTTP bridge
+        if: matrix.platform == 'linux/amd64'
+        env:
+          FHEM_CONFIG_PATH: ${{ github.workspace }}/tests/fixtures
+        run: docker compose up --detach --no-build
+
+      - name: Wait for Streamable HTTP bridge
+        if: matrix.platform == 'linux/amd64'
+        env:
+          FHEM_CONFIG_PATH: ${{ github.workspace }}/tests/fixtures
+        run: |
+          for attempt in $(seq 1 30); do
+            container_id=$(docker compose ps -q fhem-mcp-http)
+            status=$(docker inspect --format '{{.State.Health.Status}}' "$container_id")
+            test "$status" = healthy && exit 0
+            sleep 2
+          done
+          docker compose logs fhem-mcp-http
+          exit 1
+
+      - name: Smoke-test Streamable HTTP and tools
+        if: matrix.platform == 'linux/amd64'
+        env:
+          FHEM_CONFIG_PATH: ${{ github.workspace }}/tests/fixtures
+        run: docker compose exec -T fhem-mcp-http python - http://127.0.0.1:8000 < scripts/smoke_streamable_http.py
+
+      - name: Smoke-test backward-compatible stdio entrypoint
+        if: matrix.platform == 'linux/amd64'
+        env:
+          FHEM_CONFIG_PATH: ${{ github.workspace }}/tests/fixtures
+        run: |
+          response=$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"docker-smoke","version":"1"}}}' | docker run --rm -i -v "${{ github.workspace }}/tests/fixtures:/config:ro" "ghcr.io/sidey79/fhem-mcp:${{ steps.version.outputs.value }}" --config-root /config mcp-stdio)
+          grep -q '"name": *"fhem-mcp"' <<< "$response"
+
+      - name: Stop Streamable HTTP bridge
+        if: matrix.platform == 'linux/amd64' && always()
+        env:
+          FHEM_CONFIG_PATH: ${{ github.workspace }}/tests/fixtures
+        run: docker compose down
 
       - name: Upload Trivy scan results to GitHub Security tab
         if: matrix.platform == 'linux/amd64' && always()

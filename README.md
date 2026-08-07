@@ -122,6 +122,7 @@ pip install -e .[dev]
 Die vollständige CLI/MCP-Nutzung (inkl. `mcp-stdio`, IDE-Beispiel und Testkommandos) ist hier dokumentiert:
 
 - `docs/cli-mcp-access.md`
+- `docs/streamable-http.md` für Streamable HTTP mit Docker Compose
 
 ## Debug-Logging (optional)
 
@@ -189,6 +190,24 @@ Hinweise:
 - Der Host-Pfad muss absolut sein.
 - `:ro` hält den Zugriff im Container read-only.
 - Falls dein Agent in einem Container läuft, muss der Mount-Pfad aus Sicht dieses Agent-Containers gültig sein.
+
+## Docker Compose: Streamable HTTP
+
+Die optionale Bridge stellt denselben stdio-Server im gemeinsamen Docker-Netz
+unter `http://fhem-mcp-http:8000/mcp` als zustandsbehaftetes Streamable HTTP
+bereit. Sie veröffentlicht keinen Host-Port und aktiviert weder GET noch SET.
+
+```bash
+export FHEM_CONFIG_PATH=/ABSOLUTER/PFAD/ZU/DEINEN/FHEM/CONFIGS
+docker compose up --build -d
+```
+
+Open WebUI verwendet den Typ **MCP (Streamable HTTP)**, n8n das **MCP Client
+Tool** mit Streamable-HTTP-Transport. Beide Clients müssen dem benannten Netz
+`fhem-mcp` beitreten. Die Betriebs- und Sicherheitshinweise stehen in
+[`docs/streamable-http.md`](docs/streamable-http.md). Eine Veröffentlichung auf
+Host, LAN oder Internet erfordert einen separaten authentifizierenden
+TLS-Reverse-Proxy.
 
 ## Tests ausführen
 

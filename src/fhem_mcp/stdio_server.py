@@ -177,7 +177,7 @@ class StdioMcpServer:
                     "id": req_id,
                     "result": {
                         "protocolVersion": protocol_version,
-                        "serverInfo": {"name": "fhem-mcp", "title": "FHEM Config MCP", "version": "0.9.0"},
+                        "serverInfo": {"name": "fhem-mcp", "title": "FHEM Config MCP", "version": "0.10.0"},
                         "instructions": "FHEM config server with read-only inspection and independently enabled active GET and SET access governed by FHEM authorization.",
                         "capabilities": {"tools": {}},
                     },
