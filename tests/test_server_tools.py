@@ -1,8 +1,9 @@
 from pathlib import Path
 from unittest.mock import patch
+from urllib.error import HTTPError
 from urllib.parse import unquote_plus
 
-from fhem_mcp.server import FhemMcpServer
+from fhem_mcp.server import FhemMcpServer, RejectRedirectHandler
 
 def test_list_and_read_config_files() -> None:
     server = FhemMcpServer(config_root=Path("tests/fixtures"))
@@ -1168,3 +1169,174 @@ def test_read_live_log_http_cursor_rejects_changed_query_or_anchor() -> None:
                 assert "cursor" in str(exc)
             else:
                 raise AssertionError("Expected mismatched cursor to fail")
+
+
+def test_run_live_get_http_enabled_transport_and_response() -> None:
+    server = FhemMcpServer(
+        config_root=Path("tests/fixtures"),
+        enable_get=True,
+        active_runtime_base_url="https://zeus:8088/fhem",
+    )
+
+    class _Resp:
+        headers: dict[str, str] = {}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return b"line one\nline two\n"
+
+    class _Opener:
+        def __init__(self) -> None:
+            self.request = None
+            self.timeout = None
+
+        def open(self, request, *, timeout):
+            self.request = request
+            self.timeout = timeout
+            return _Resp()
+
+    opener = _Opener()
+
+    with patch("fhem_mcp.server.create_default_context", return_value="TLS") as tls_context, patch(
+        "fhem_mcp.server.build_opener", return_value=opener
+    ) as mocked_build_opener:
+        result = server.run_live_get_http(
+            "Weather", "  forecast tomorrow  ",
+            fwcsrf="csrf token", timeout_seconds=2.5, username="alice",
+            password="secret", ca_file="/certs/ca.pem",
+        )
+
+    assert result == {
+        "device_name": "Weather", "get_option": "forecast",
+        "get_parameters": "forecast tomorrow", "response": "line one\nline two\n",
+    }
+    request = opener.request
+    assert request.full_url == "https://zeus:8088/fhem?cmd=get+Weather+forecast+tomorrow&XHR=1&fwcsrf=csrf+token"
+    assert request.get_header("Authorization").startswith("Basic ")
+    assert opener.timeout == 2.5
+    handler_names = {type(handler).__name__ for handler in mocked_build_opener.call_args.args}
+    assert handler_names == {"RejectRedirectHandler", "HTTPSHandler"}
+    tls_context.assert_called_once_with(cafile="/certs/ca.pem", capath=None)
+
+
+def test_run_live_set_http_enabled_transport_and_response() -> None:
+    server = FhemMcpServer(
+        config_root=Path("tests/fixtures"),
+        enable_set=True,
+        active_runtime_base_url="http://fhem:8083/fhem",
+    )
+    with patch.object(server, "_http_get_text_no_redirects", return_value="") as request:
+        result = server.run_live_set_http(
+            "lamp", "  desired-temp 21.5  ", fwcsrf="token"
+        )
+    assert result == {
+        "device_name": "lamp", "set_option": "desired-temp",
+        "set_parameters": "desired-temp 21.5", "response": "",
+    }
+    assert "cmd=set+lamp+desired-temp+21.5&XHR=1&fwcsrf=token" in request.call_args.args[0]
+
+
+def test_active_commands_reject_all_redirects_without_following_target() -> None:
+    handler = RejectRedirectHandler()
+    for status in (301, 302, 307, 308):
+        assert handler.redirect_request(
+            None, None, status, "redirect", {"Location": "https://evil.example/fhem"},
+            "https://evil.example/fhem",
+        ) is None
+
+    server = FhemMcpServer(
+        config_root=Path("tests/fixtures"), enable_set=True,
+        active_runtime_base_url="https://approved.example/fhem",
+    )
+
+    class _RedirectingOpener:
+        calls = 0
+
+        def open(self, request, *, timeout):
+            self.calls += 1
+            raise HTTPError(
+                request.full_url, 302, "Found",
+                {"Location": "https://evil.example/fhem"}, None,
+            )
+
+    opener = _RedirectingOpener()
+    with patch("fhem_mcp.server.build_opener", return_value=opener):
+        try:
+            server.run_live_set_http("lamp", "on", fwcsrf="token")
+        except HTTPError as exc:
+            assert exc.code == 302
+        else:
+            raise AssertionError("Expected redirect to be rejected")
+    assert opener.calls == 1
+
+    token_opener = _RedirectingOpener()
+    with patch("fhem_mcp.server.build_opener", return_value=token_opener):
+        try:
+            server.run_live_set_http(
+                "lamp", "on", username="alice", password="secret"
+            )
+        except HTTPError as exc:
+            assert exc.code == 302
+        else:
+            raise AssertionError("Expected CSRF token redirect to be rejected")
+    assert token_opener.calls == 1
+
+
+def test_active_commands_require_operator_approved_endpoint() -> None:
+    for switch in ({"enable_get": True}, {"enable_set": True}):
+        try:
+            FhemMcpServer(config_root=Path("tests/fixtures"), **switch)
+        except ValueError as exc:
+            assert "active_runtime_base_url is required" in str(exc)
+        else:
+            raise AssertionError("Expected enabled active command without endpoint to fail")
+
+
+def test_live_get_and_set_are_disabled_by_default_before_network() -> None:
+    server = FhemMcpServer(config_root=Path("tests/fixtures"))
+    calls = (
+        (server.run_live_get_http, "status", "--enable-get"),
+        (server.run_live_set_http, "on", "--enable-set"),
+    )
+    for method, parameters, switch in calls:
+        with patch("fhem_mcp.server.urlopen") as no_network:
+            try:
+                method("lamp", parameters, fwcsrf=None)
+            except ValueError as exc:
+                assert switch in str(exc)
+            else:
+                raise AssertionError("Expected disabled command to fail")
+            no_network.assert_not_called()
+
+
+def test_live_get_and_set_reject_unsafe_inputs_before_network() -> None:
+    server = FhemMcpServer(
+        config_root=Path("tests/fixtures"), enable_get=True, enable_set=True,
+        active_runtime_base_url="http://fhem:8083/fhem",
+    )
+    unsafe = ("", "   ", "status;shutdown", "status\nshutdown", "status\targ", "status\0arg", "status\x7farg")
+    for method in (server.run_live_get_http, server.run_live_set_http):
+        for parameters in unsafe:
+            with patch("fhem_mcp.server.urlopen") as no_network:
+                try:
+                    method("lamp", parameters, fwcsrf=None)
+                except ValueError:
+                    pass
+                else:
+                    raise AssertionError(f"Expected rejection for {parameters!r}")
+                no_network.assert_not_called()
+
+        for device in ("", "TYPE=dummy", "lamp;shutdown", "lamp other"):
+            with patch("fhem_mcp.server.urlopen") as no_network:
+                try:
+                    method(device, "status", fwcsrf=None)
+                except ValueError:
+                    pass
+                else:
+                    raise AssertionError(f"Expected rejection for {device!r}")
+                no_network.assert_not_called()

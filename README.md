@@ -1,11 +1,11 @@
 # FHEM MCP Server
 
-Ein **read-only** MCP-Server, der FHEM-Konfigurationen und ausgewählte Laufzeitdaten sicher für AI-Agenten zugänglich macht. Die Architektur trennt statische Quelldateien bewusst vom autoritativen Zustand einer laufenden FHEM-Instanz.
+Ein sicherheitsorientierter MCP-Server, der FHEM-Konfigurationen und ausgewählte Laufzeitdaten sicher für AI-Agenten zugänglich macht. Die Architektur trennt statische Quelldateien bewusst vom autoritativen Zustand einer laufenden FHEM-Instanz.
 
 ## Architektur
 
 - **Source View:** Liest `fhem.cfg` und Include-Dateien für Quellzuordnung, Suche und Best-Effort-Validierung.
-- **Runtime View:** Fragt eine laufende FHEM-Instanz read-only über HTTP ab, etwa für Gerätezustand, Logs und Events.
+- **Runtime View:** Fragt eine laufende FHEM-Instanz über HTTP ab: passive Snapshots sowie global aktivierbare Geräte-GETs und -SETs; FHEM `allowed` bleibt die Autorisierungsgrenze.
 - **Sandbox Validation:** Ist für spätere Patch-Validierung vorgesehen; Produktions-FHEM wird nicht verändert.
 
 Der Parser bildet FHEM absichtlich nicht vollständig nach. FHEMs Parser ist mit der Ausführung von Befehlen und dem Aufbau von Perl-Laufzeitstrukturen gekoppelt; für den aktiven Zustand bleibt daher die Runtime View maßgeblich.
@@ -20,15 +20,16 @@ Der Parser bildet FHEM absichtlich nicht vollständig nach. FHEMs Parser ist mit
 - Quellpositions-Tracking (Datei + Zeilennummer)
 - Read-only Tool-Funktionen (kein Write/Apply)
 - Autoritativer Runtime-Snapshot eines einzelnen Geräts per FHEM-HTTP/`jsonlist2`
+- Unabhängig aktivierbare gerätespezifische FHEM-GETs und -SETs über HTTP
 - MCP Tool-Schemas sind über Pydantic-Modelle typisiert und werden als JSON-Schema für MCP generiert
 
-Nicht enthalten in Phase 1 (Phase 2+):
+Nicht enthalten:
 
 - Vollständiger Runtime View Adapter (Telnet, freie `devspec`- und Massenabfragen)
 - Separate State-/Readings-Komfort-Tools
 - Patch-Proposal/Preview/Validation
 - Produktionsänderungen an FHEM
-- `set/delete/shutdown/rereadcfg`
+- Freie FHEM-Befehle wie `delete`, `shutdown`, `rereadcfg`, `define` oder `attr`
 - Vollständige FHEM-kompatible Parser-Reimplementierung
 
 ## Implementierte MCP-Server-Funktionen
@@ -42,6 +43,8 @@ Nicht enthalten in Phase 1 (Phase 2+):
 | `list_live_logs_http(base_url, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?)` | Listet verfügbare Live-Logs read-only per FHEM-HTTP (`cmd=jsonlist2 TYPE=FileLog`) inkl. Log-Pattern und aktueller Datei je FileLog-Device. | `{"log_patterns":["./log/fhem-%Y-%m-%d.log"]}` |
 | `observe_live_events_http(base_url, duration_seconds?, event_monitor_filter?, device_regex?, event_regex?, max_events?, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?)` | Beobachtet den FHEMWEB Event Monitor read-only für eine begrenzte Zeit per HTTP-Longpoll (`inform=type=raw;filter=...;fmt=JSON`), nutzt einen Raw-Event-Regex (`TYPE=<type>` wird übersetzt) und liefert Events plus Zusammenfassung. | `{"event_count":2,"summary":{"devices":{"lamp":2}}}` |
 | `get_live_device_http(base_url, device_name, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?)` | Liest genau ein aktives Gerät read-only per FHEM-HTTP (`cmd=jsonlist2 <device_name>`). Freie `devspec`-Ausdrücke und FHEM-Befehle sind nicht erlaubt. | `{"name":"lamp","internals":{"TYPE":"dummy"},"attributes":{"room":"Living"},"readings":{"state":{"value":"on","time":"2026-07-15 12:00:00"}},"possible_sets":"off on","possible_attributes":"room alias"}` |
+| `run_live_get_http(device_name, get_parameters, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?)` | Führt bei globalem `--enable-get` einen gerätespezifischen FHEM-GET aus; FHEM/`allowed` autorisiert den Zugriff. | `{"device_name":"Weather","get_option":"forecast","get_parameters":"forecast tomorrow","response":"sunny"}` |
+| `run_live_set_http(device_name, set_parameters, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?)` | Führt bei globalem `--enable-set` einen gerätespezifischen FHEM-SET aus; FHEM/`allowed` autorisiert den Zugriff. | `{"device_name":"lamp","set_option":"on","set_parameters":"on","response":""}` |
 | `list_devices(relative_path)` | Listet Geräte aus Entry-Config inkl. Includes mit Typ und Source-Position. | `[{"name":"lamp","device_type":"dummy","source_file":".../fhem.cfg","source_line":2}]` |
 | `get_device(relative_path, device_name)` | Liefert ein Gerät mit `define`-Details und allen zugehörigen `attr`-Einträgen. | `{"name":"lamp","device_type":"dummy","attributes":[...]} ` |
 | `list_groups(relative_path?, group_name?)` | Wertet `attr <device> group ...` aus und gruppiert auf Gruppenname. | `{"Licht":["tempSensor"],"Klima":["tempSensor"]}` |
@@ -68,6 +71,34 @@ fhem-mcp \
 ```
 
 Der gleiche Aufruf steht MCP-Clients als Tool `get_live_device_http` zur Verfügung. Für geschützte Instanzen unterstützt das Tool zusätzlich Basic Auth, einen optionalen CSRF-Token und eigene CA-Pfade für TLS.
+
+### Phase-2-Zugriff: aktive FHEM-GETs und -SETs
+
+Diese bewusst aufgenommene Phase-2-Erweiterung liegt außerhalb des weiterhin unveränderten Phase-1-Read-only-Scopes. Sie muss vom Betreiber ausdrücklich aktiviert werden.
+
+GET und SET sind standardmäßig deaktiviert und werden unabhängig beim Serverstart freigeschaltet: Sobald einer der Schalter aktiv ist, muss der Betreiber denselben Startprozess mit `--active-runtime-base-url` fest an den vorgesehenen, durch `allowed` geschützten FHEMWEB-Endpunkt binden.
+
+```bash
+# GET aktivieren
+fhem-mcp \
+  --config-root /ABSOLUTER/PFAD/ZU/DEINEN/FHEM/CONFIGS \
+  --enable-get \
+  --active-runtime-base-url https://fhem.example:8083/fhem \
+  run_live_get_http Weather "forecast tomorrow"
+
+# SET aktivieren
+fhem-mcp \
+  --config-root /ABSOLUTER/PFAD/ZU/DEINEN/FHEM/CONFIGS \
+  --enable-set \
+  --active-runtime-base-url https://fhem.example:8083/fhem \
+  run_live_set_http lamp "on"
+```
+
+Die Schalter gelten ebenso für `mcp-stdio`. Der MCP-Server setzt ausschließlich `get <literal-device> <validated-parameters>` beziehungsweise `set <literal-device> <validated-parameters>` zusammen. Freie `devspec`, Semikolon, NUL, Zeilenumbrüche und andere Steuerzeichen sind verboten. Die FHEM-Antwort wird unverändert in `response` geliefert.
+
+Nach der globalen Aktivierung übernimmt FHEM die Autorisierung. MCP-Aufrufer können diesen gebundenen Endpoint weder auswählen noch überschreiben. Aktive CSRF- und Befehlsanfragen folgen keinen HTTP-Redirects; jede 30x-Antwort wird als Fehler zurückgegeben. Für externe Automation wird eine dedizierte FHEMWEB-Instanz (`apiWeb`) empfohlen, die durch ein `allowed`-Device auf die gewünschten Benutzer, Geräte und Befehle begrenzt ist. Zusätzlich sollten `allowfrom`, HTTPS, Basic Auth und CSRF-Schutz passend konfiguriert bleiben. Der MCP-Server bildet diese FHEM-Policy bewusst nicht nach.
+
+GET ist nicht universell nebenwirkungsfrei; SET verändert den FHEM-Laufzeitzustand ausdrücklich. Beide sind **active runtime access**. `get_live_device_http` bleibt davon getrennt und liefert ausschließlich einen passiven `jsonlist2`-Snapshot. Andere FHEM-Kommandos wie `delete`, `shutdown`, `rereadcfg`, `define` oder `attr` werden nicht angeboten.
 
 ## Parser-Verhalten
 

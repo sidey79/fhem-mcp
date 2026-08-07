@@ -118,6 +118,24 @@ class GetLiveDeviceHttpArgs(ListLiveLogsHttpArgs):
     device_name: str
 
 
+class ActiveRuntimeHttpArgs(StrictModel):
+    device_name: str
+    fwcsrf: str | None = None
+    timeout_seconds: float = 5.0
+    username: str | None = None
+    password: str | None = None
+    ca_file: str | None = None
+    ca_path: str | None = None
+
+
+class RunLiveGetHttpArgs(ActiveRuntimeHttpArgs):
+    get_parameters: str
+
+
+class RunLiveSetHttpArgs(ActiveRuntimeHttpArgs):
+    set_parameters: str
+
+
 class ObserveLiveEventsHttpArgs(StrictModel):
     base_url: str
     duration_seconds: int = 10
@@ -140,6 +158,8 @@ TOOL_DEFINITIONS: dict[str, tuple[str, type[BaseModel]]] = {
     "read_live_log_http": ("Read live FHEM log via HTTP with optional filters", ReadLiveLogHttpArgs),
     "list_live_logs_http": ("List live FHEM logs via HTTP jsonlist2 TYPE=FileLog", ListLiveLogsHttpArgs),
     "get_live_device_http": ("Get one authoritative live FHEM device snapshot via HTTP jsonlist2", GetLiveDeviceHttpArgs),
+    "run_live_get_http": ("Phase 2: run one device-specific FHEM GET when globally enabled", RunLiveGetHttpArgs),
+    "run_live_set_http": ("Phase 2: run one device-specific FHEM SET when globally enabled", RunLiveSetHttpArgs),
     "observe_live_events_http": ("Observe the FHEMWEB Event Monitor via bounded HTTP raw event longpoll", ObserveLiveEventsHttpArgs),
     "list_devices": ("List parsed devices; supports token-efficient table output", ListDevicesArgs),
     "get_device": ("Get one parsed device; supports compact output", GetDeviceArgs),

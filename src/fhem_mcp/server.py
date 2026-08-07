@@ -5,6 +5,7 @@ from binascii import Error as BinasciiError
 from hashlib import sha256
 from html import unescape
 import json
+import unicodedata
 from socket import timeout as SocketTimeout
 from ssl import SSLContext, create_default_context
 from dataclasses import dataclass
@@ -13,13 +14,20 @@ from pathlib import Path
 from time import monotonic
 from urllib.parse import ParseResult, quote_plus, urlparse
 import re
-from urllib.request import Request, urlopen
+from urllib.request import BaseHandler, HTTPRedirectHandler, HTTPSHandler, Request, build_opener, urlopen
 from typing import Literal
 
 from .models import FhemAttribute, FhemDevice, FhemEvent
 from .output_mapper import device_to_compact, rows_to_table
-from .output_models import RawLogPageDto, ResponseMetaDto
+from .output_models import LiveGetResultDto, LiveSetResultDto, RawLogPageDto, ResponseMetaDto
 from .parser import FhemConfigParser, IncludeDirective
+
+
+class RejectRedirectHandler(HTTPRedirectHandler):
+    """Reject redirects so active commands cannot leave their approved origin."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
 
 
 @dataclass(frozen=True)
@@ -33,11 +41,26 @@ class ParseEvent:
 
 
 class FhemMcpServer:
-    """Read-only Phase 1 MCP tool surface for source-view operations."""
+    """FHEM source and runtime MCP tool surface."""
 
-    def __init__(self, config_root: Path) -> None:
+    def __init__(
+        self,
+        config_root: Path,
+        enable_get: bool = False,
+        enable_set: bool = False,
+        active_runtime_base_url: str | None = None,
+    ) -> None:
         self.config_root = config_root.resolve()
         self.parser = FhemConfigParser()
+        self.enable_get = enable_get
+        self.enable_set = enable_set
+        if (enable_get or enable_set) and active_runtime_base_url is None:
+            raise ValueError(
+                "active_runtime_base_url is required when GET or SET is enabled"
+            )
+        if active_runtime_base_url is not None:
+            self._validate_live_base_url(active_runtime_base_url)
+        self.active_runtime_base_url = active_runtime_base_url
 
     def _resolve_in_root(self, relative_path: str) -> Path:
         target = (self.config_root / relative_path).resolve()
@@ -310,6 +333,27 @@ class FhemMcpServer:
             return ""
         return token.strip()
 
+    def _fetch_fwcsrf_http_no_redirects(
+        self,
+        base_url: str,
+        timeout_seconds: float,
+        username: str | None,
+        password: str | None,
+        ssl_context: SSLContext | None,
+    ) -> str:
+        token_url = self._build_live_request(base_url, ["XHR=1"])
+        request = Request(token_url, method="GET")
+        self._request_with_optional_auth(request, username, password)
+        handlers: list[BaseHandler] = [RejectRedirectHandler()]
+        if ssl_context is not None:
+            handlers.append(HTTPSHandler(context=ssl_context))
+        opener = build_opener(*handlers)
+        with opener.open(request, timeout=timeout_seconds) as response:
+            token = response.headers.get("X-FHEM-csrfToken")
+        if token is None or not token.strip():
+            return ""
+        return token.strip()
+
     @staticmethod
     def _build_live_request(base_url: str, query_parts: list[str]) -> str:
         separator = "&" if "?" in base_url else "?"
@@ -336,6 +380,24 @@ class FhemMcpServer:
         else:
             response_ctx = urlopen(request, timeout=timeout_seconds, context=ssl_context)
         with response_ctx as response:
+            payload = response.read()
+        return payload.decode("utf-8", errors="replace")
+
+    def _http_get_text_no_redirects(
+        self,
+        request_url: str,
+        timeout_seconds: float,
+        username: str | None,
+        password: str | None,
+        ssl_context: SSLContext | None,
+    ) -> str:
+        request = Request(request_url, method="GET")
+        self._request_with_optional_auth(request, username, password)
+        handlers: list[BaseHandler] = [RejectRedirectHandler()]
+        if ssl_context is not None:
+            handlers.append(HTTPSHandler(context=ssl_context))
+        opener = build_opener(*handlers)
+        with opener.open(request, timeout=timeout_seconds) as response:
             payload = response.read()
         return payload.decode("utf-8", errors="replace")
 
@@ -978,6 +1040,115 @@ class FhemMcpServer:
             "possible_sets": possible_sets,
             "possible_attributes": possible_attributes,
         }
+
+    def run_live_get_http(
+        self,
+        device_name: str,
+        get_parameters: str,
+        fwcsrf: str | None = None,
+        timeout_seconds: float = 5.0,
+        username: str | None = None,
+        password: str | None = None,
+        ca_file: str | None = None,
+        ca_path: str | None = None,
+    ) -> dict[str, str]:
+        base_url = self._active_runtime_url("GET", self.enable_get)
+        target_device = self._validate_live_device_name(device_name)
+        parameters, get_option = self._validate_live_get_parameters(get_parameters)
+        if timeout_seconds <= 0:
+            raise ValueError("timeout_seconds must be > 0")
+        if (username is None) != (password is None):
+            raise ValueError("username and password must be provided together")
+
+        ssl_context = self._build_tls_context(ca_file, ca_path)
+        token = fwcsrf if fwcsrf is not None else self._fetch_fwcsrf_http_no_redirects(
+            base_url, timeout_seconds, username, password, ssl_context
+        )
+        command = f"get {target_device} {parameters}"
+        query_parts = [f"cmd={quote_plus(command)}", "XHR=1"]
+        if token:
+            query_parts.append(f"fwcsrf={quote_plus(token)}")
+        request_url = self._build_live_request(base_url, query_parts)
+        response = self._http_get_text_no_redirects(
+            request_url, timeout_seconds, username, password, ssl_context
+        )
+        return LiveGetResultDto(
+            device_name=target_device,
+            get_option=get_option,
+            get_parameters=parameters,
+            response=response,
+        ).model_dump()
+
+    def run_live_set_http(
+        self,
+        device_name: str,
+        set_parameters: str,
+        fwcsrf: str | None = None,
+        timeout_seconds: float = 5.0,
+        username: str | None = None,
+        password: str | None = None,
+        ca_file: str | None = None,
+        ca_path: str | None = None,
+    ) -> dict[str, str]:
+        base_url = self._active_runtime_url("SET", self.enable_set)
+        target_device = self._validate_live_device_name(device_name)
+        parameters, set_option = self._validate_live_command_parameters(
+            set_parameters, "set_parameters"
+        )
+        if timeout_seconds <= 0:
+            raise ValueError("timeout_seconds must be > 0")
+        if (username is None) != (password is None):
+            raise ValueError("username and password must be provided together")
+
+        ssl_context = self._build_tls_context(ca_file, ca_path)
+        token = fwcsrf if fwcsrf is not None else self._fetch_fwcsrf_http_no_redirects(
+            base_url, timeout_seconds, username, password, ssl_context
+        )
+        command = f"set {target_device} {parameters}"
+        query_parts = [f"cmd={quote_plus(command)}", "XHR=1"]
+        if token:
+            query_parts.append(f"fwcsrf={quote_plus(token)}")
+        request_url = self._build_live_request(base_url, query_parts)
+        response = self._http_get_text_no_redirects(
+            request_url, timeout_seconds, username, password, ssl_context
+        )
+        return LiveSetResultDto(
+            device_name=target_device,
+            set_option=set_option,
+            set_parameters=parameters,
+            response=response,
+        ).model_dump()
+
+    def _active_runtime_url(self, command: str, enabled: bool) -> str:
+        if not enabled:
+            raise ValueError(
+                f"FHEM {command} commands are disabled; start the server with --enable-{command.lower()}"
+            )
+        if self.active_runtime_base_url is None:
+            raise ValueError("active_runtime_base_url is not configured")
+        return self.active_runtime_base_url
+
+    @staticmethod
+    def _validate_live_command_parameters(
+        parameters: str, field_name: str
+    ) -> tuple[str, str]:
+        candidate = parameters.strip()
+        if not candidate:
+            raise ValueError(f"{field_name} must not be empty")
+        if ";" in candidate or any(
+            unicodedata.category(ch).startswith("C") for ch in candidate
+        ):
+            raise ValueError(
+                f"{field_name} contains unsupported control or command characters"
+            )
+        return candidate, candidate.split(maxsplit=1)[0]
+
+    @staticmethod
+    def _validate_live_get_parameters(get_parameters: str) -> tuple[str, str]:
+        return FhemMcpServer._validate_live_command_parameters(
+            get_parameters, "get_parameters"
+        )
+
 
     @staticmethod
     def _normalize_jsonlist2_values(value: object, field_name: str) -> dict[str, str | None]:

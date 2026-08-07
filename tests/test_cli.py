@@ -134,3 +134,26 @@ def test_compact_device_cli_forwards_output_options() -> None:
     server_class.return_value.get_device.assert_called_once_with(
         "fhem.cfg", "lamp", "compact", True, True
     )
+
+
+def test_live_get_and_set_cli_enable_switches() -> None:
+    parser = _build_parser()
+    get_args = parser.parse_args([
+        "--config-root", "tests/fixtures", "--enable-get",
+        "--active-runtime-base-url", "https://zeus:8088/fhem",
+        "run_live_get_http", "Weather", "forecast tomorrow",
+    ])
+    set_args = parser.parse_args([
+        "--config-root", "tests/fixtures", "--enable-set",
+        "--active-runtime-base-url", "https://zeus:8088/fhem",
+        "run_live_set_http", "lamp", "on",
+    ])
+    defaults = parser.parse_args([
+        "--config-root", "tests/fixtures", "list_config_files",
+    ])
+    assert get_args.enable_get is True and get_args.enable_set is False
+    assert get_args.active_runtime_base_url == "https://zeus:8088/fhem"
+    assert get_args.get_parameters == "forecast tomorrow"
+    assert set_args.enable_set is True and set_args.enable_get is False
+    assert set_args.set_parameters == "on"
+    assert defaults.enable_get is False and defaults.enable_set is False
