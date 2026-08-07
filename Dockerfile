@@ -20,7 +20,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 COPY --from=builder /dist/*.whl /tmp/
-RUN pip install --no-cache-dir /tmp/*.whl && rm -f /tmp/*.whl
+RUN pip install --no-cache-dir /tmp/*.whl mcp-proxy==0.12.0 && rm -f /tmp/*.whl
 
 RUN useradd --create-home --uid 10001 appuser
 USER appuser
