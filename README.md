@@ -114,10 +114,12 @@ Der Parser ist absichtlich **best-effort**:
 ## Installation
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -e .[dev]
+docker pull ghcr.io/sidey79/fhem-mcp:latest
 ```
+
+Das veröffentlichte Image aus der GitHub Container Registry ist die aktuelle
+Installationsmethode. Ein lokaler Build oder eine Installation aus dem
+Quellcode ist für den normalen Betrieb nicht erforderlich.
 
 ## CLI und MCP Zugriff
 
@@ -159,13 +161,9 @@ Viele IDEs/Agent-Hosts verwenden eine MCP-Serverliste ähnlich diesem Muster:
 
 ## Docker: MCP-Server in Agent einbinden
 
-Image bauen:
-
-```bash
-docker build -t fhem-mcp:latest .
-```
-
-Dann den MCP-Server im Agent-Host über `docker run` starten. Wichtig ist `-i` (stdio offen lassen) und ein Read-only-Mount auf den FHEM-Config-Ordner:
+Den MCP-Server im Agent-Host direkt mit dem veröffentlichten GHCR-Image über
+`docker run` starten. Wichtig ist `-i` (stdio offen lassen) und ein
+Read-only-Mount auf den FHEM-Config-Ordner:
 
 ```json
 {
@@ -178,7 +176,7 @@ Dann den MCP-Server im Agent-Host über `docker run` starten. Wichtig ist `-i` (
         "-i",
         "-v",
         "/ABSOLUTER/PFAD/ZU/DEINEN/FHEM/CONFIGS:/config:ro",
-        "fhem-mcp:latest",
+        "ghcr.io/sidey79/fhem-mcp:latest",
         "--config-root",
         "/config",
         "mcp-stdio"
@@ -201,7 +199,7 @@ bereit. Sie veröffentlicht keinen Host-Port und aktiviert weder GET noch SET.
 
 ```bash
 export FHEM_CONFIG_PATH=/ABSOLUTER/PFAD/ZU/DEINEN/FHEM/CONFIGS
-docker compose up --build -d
+docker compose up -d
 ```
 
 Open WebUI verwendet den Typ **MCP (Streamable HTTP)**, n8n das **MCP Client

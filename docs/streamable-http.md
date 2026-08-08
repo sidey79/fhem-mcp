@@ -11,7 +11,6 @@ FHEM-Konfiguration enthält, und starte den Service:
 
 ```bash
 export FHEM_CONFIG_PATH=/ABSOLUTER/PFAD/ZU/FHEM/CONFIG
-docker compose build
 docker compose up -d
 docker compose ps
 ```
@@ -78,13 +77,12 @@ Die Standardkonfiguration:
 
 ## Kompatibilität und Test
 
-Der bisherige Docker-Aufruf mit dem Image-Entrypoint bleibt unverändert
-verfügbar:
+Der stdio-Server kann ebenfalls direkt aus GHCR gestartet werden:
 
 ```bash
 docker run --rm -i \
   -v "$FHEM_CONFIG_PATH:/config:ro" \
-  fhem-mcp:0.11.0 --config-root /config mcp-stdio
+  ghcr.io/sidey79/fhem-mcp:latest --config-root /config mcp-stdio
 ```
 
 Ein vollständiger Bridge-Smoke-Test wird in CI ausgeführt. Lokal kann er nach
