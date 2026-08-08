@@ -84,7 +84,7 @@ verfügbar:
 ```bash
 docker run --rm -i \
   -v "$FHEM_CONFIG_PATH:/config:ro" \
-  fhem-mcp:0.10.0 --config-root /config mcp-stdio
+  fhem-mcp:0.11.0 --config-root /config mcp-stdio
 ```
 
 Ein vollständiger Bridge-Smoke-Test wird in CI ausgeführt. Lokal kann er nach

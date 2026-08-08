@@ -74,7 +74,7 @@ class GetDeviceFullArgs(StrictModel):
 
 
 class ReadLiveConfigHttpArgs(StrictModel):
-    base_url: str
+    base_url: str | None = None
     config_path: str = "fhem.cfg"
     fwcsrf: str | None = None
     timeout_seconds: float = 5.0
@@ -85,7 +85,7 @@ class ReadLiveConfigHttpArgs(StrictModel):
 
 
 class ReadLiveLogHttpArgs(StrictModel):
-    base_url: str
+    base_url: str | None = None
     log_path: str = "./log/fhem-%Y-%m-%d.log"
     fwcsrf: str | None = None
     timeout_seconds: float = 5.0
@@ -105,7 +105,7 @@ class ReadLiveLogHttpArgs(StrictModel):
 
 
 class ListLiveLogsHttpArgs(StrictModel):
-    base_url: str
+    base_url: str | None = None
     fwcsrf: str | None = None
     timeout_seconds: float = 5.0
     username: str | None = None
@@ -137,7 +137,7 @@ class RunLiveSetHttpArgs(ActiveRuntimeHttpArgs):
 
 
 class ObserveLiveEventsHttpArgs(StrictModel):
-    base_url: str
+    base_url: str | None = None
     duration_seconds: int = 10
     event_monitor_filter: str = ".*"
     device_regex: str | None = None

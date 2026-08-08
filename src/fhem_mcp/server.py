@@ -567,7 +567,7 @@ class FhemMcpServer:
 
     def observe_live_events_http(
         self,
-        base_url: str,
+        base_url: str | None,
         duration_seconds: int = 10,
         event_monitor_filter: str = ".*",
         device_regex: str | None = None,
@@ -580,7 +580,7 @@ class FhemMcpServer:
         ca_file: str | None = None,
         ca_path: str | None = None,
     ) -> dict[str, object]:
-        self._validate_live_base_url(base_url)
+        base_url = self._read_runtime_url(base_url)
         self._validate_observe_limit("duration_seconds", duration_seconds, 1, 60)
         self._validate_observe_limit("max_events", max_events, 1, 5000)
         if timeout_seconds <= 0:
@@ -659,7 +659,7 @@ class FhemMcpServer:
 
     def read_live_config_http(
         self,
-        base_url: str,
+        base_url: str | None,
         config_path: str = "fhem.cfg",
         fwcsrf: str | None = None,
         timeout_seconds: float = 5.0,
@@ -669,7 +669,7 @@ class FhemMcpServer:
         ca_path: str | None = None,
         enforce_cfg_suffix: bool = True,
     ) -> str:
-        self._validate_live_base_url(base_url)
+        base_url = self._read_runtime_url(base_url)
         target_cfg = self._validate_live_edit_token(config_path, "config_path")
         if enforce_cfg_suffix and not target_cfg.endswith(".cfg"):
             raise ValueError("config_path must end with .cfg")
@@ -895,7 +895,7 @@ class FhemMcpServer:
 
     def list_live_logs_http(
         self,
-        base_url: str,
+        base_url: str | None,
         fwcsrf: str | None = None,
         timeout_seconds: float = 5.0,
         username: str | None = None,
@@ -903,7 +903,7 @@ class FhemMcpServer:
         ca_file: str | None = None,
         ca_path: str | None = None,
     ) -> dict[str, object]:
-        self._validate_live_base_url(base_url)
+        base_url = self._read_runtime_url(base_url)
         if timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be > 0")
         if (username is None) != (password is None):
@@ -967,7 +967,7 @@ class FhemMcpServer:
 
     def get_live_device_http(
         self,
-        base_url: str,
+        base_url: str | None,
         device_name: str,
         fwcsrf: str | None = None,
         timeout_seconds: float = 5.0,
@@ -976,7 +976,7 @@ class FhemMcpServer:
         ca_file: str | None = None,
         ca_path: str | None = None,
     ) -> dict[str, object] | None:
-        self._validate_live_base_url(base_url)
+        base_url = self._read_runtime_url(base_url)
         target_device = self._validate_live_device_name(device_name)
         if timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be > 0")
@@ -1128,6 +1128,15 @@ class FhemMcpServer:
             raise ValueError("active_runtime_base_url is not configured")
         return self.active_runtime_base_url
 
+    def _read_runtime_url(self, base_url: str | None) -> str:
+        resolved = base_url if base_url is not None else self.active_runtime_base_url
+        if resolved is None:
+            raise ValueError(
+                "base_url is required when active_runtime_base_url is not configured"
+            )
+        self._validate_live_base_url(resolved)
+        return resolved
+
     @staticmethod
     def _validate_live_command_parameters(
         parameters: str, field_name: str
@@ -1165,7 +1174,7 @@ class FhemMcpServer:
 
     def read_live_log_http(
         self,
-        base_url: str,
+        base_url: str | None,
         log_path: str = "./log/fhem-%Y-%m-%d.log",
         fwcsrf: str | None = None,
         timeout_seconds: float = 5.0,
