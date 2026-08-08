@@ -1,6 +1,6 @@
 services:
   fhem-mcp-http:
-    image: ghcr.io/sidey79/fhem-mcp:latest
+    image: ghcr.io/sidey79/fhem-mcp:0.11.1
     entrypoint:
       - mcp-proxy
     command:

@@ -113,53 +113,11 @@ Der Parser ist absichtlich **best-effort**:
 
 ## Installation
 
-```bash
-docker pull ghcr.io/sidey79/fhem-mcp:latest
-```
+Für den normalen Betrieb wird ausschließlich das veröffentlichte Docker-Image
+`ghcr.io/sidey79/fhem-mcp:0.11.1` verwendet. Wähle abhängig vom MCP-Client
+einen der beiden Transportwege.
 
-Das veröffentlichte Image aus der GitHub Container Registry ist die aktuelle
-Installationsmethode. Ein lokaler Build oder eine Installation aus dem
-Quellcode ist für den normalen Betrieb nicht erforderlich.
-
-## CLI und MCP Zugriff
-
-Die vollständige CLI/MCP-Nutzung (inkl. `mcp-stdio`, IDE-Beispiel und Testkommandos) ist hier dokumentiert:
-
-- `docs/cli-mcp-access.md`
-- `docs/streamable-http.md` für Streamable HTTP mit Docker Compose
-
-## Debug-Logging (optional)
-
-Für MCP-Handshake-Debugging kann Logging über eine Umgebungsvariable aktiviert werden:
-
-```bash
-FHEM_MCP_DEBUG=1 python -m fhem_mcp --config-root /ABSOLUTER/PFAD/ZU/CONFIG mcp-stdio
-```
-
-Bei aktivem Schalter schreibt der Server Debug-Ausgaben nach `/tmp/fhem-mcp-handshake.log`.
-
-## Beispiel-Konfiguration für MCP-Clients
-
-Viele IDEs/Agent-Hosts verwenden eine MCP-Serverliste ähnlich diesem Muster:
-
-```json
-{
-  "mcpServers": {
-    "fhem": {
-      "command": "python",
-      "args": [
-        "-m",
-        "fhem_mcp",
-        "--config-root",
-        "/ABSOLUTER/PFAD/ZU/DEINEN/FHEM/CONFIGS",
-        "mcp-stdio"
-      ]
-    }
-  }
-}
-```
-
-## Docker: MCP-Server in Agent einbinden
+### a) stdio
 
 Den MCP-Server im Agent-Host direkt mit dem veröffentlichten GHCR-Image über
 `docker run` starten. Wichtig ist `-i` (stdio offen lassen) und ein
@@ -176,7 +134,7 @@ Read-only-Mount auf den FHEM-Config-Ordner:
         "-i",
         "-v",
         "/ABSOLUTER/PFAD/ZU/DEINEN/FHEM/CONFIGS:/config:ro",
-        "ghcr.io/sidey79/fhem-mcp:latest",
+        "ghcr.io/sidey79/fhem-mcp:0.11.1",
         "--config-root",
         "/config",
         "mcp-stdio"
@@ -187,11 +145,12 @@ Read-only-Mount auf den FHEM-Config-Ordner:
 ```
 
 Hinweise:
+
 - Der Host-Pfad muss absolut sein.
 - `:ro` hält den Zugriff im Container read-only.
 - Falls dein Agent in einem Container läuft, muss der Mount-Pfad aus Sicht dieses Agent-Containers gültig sein.
 
-## Docker Compose: Streamable HTTP
+### b) Streamable HTTP
 
 Die optionale Bridge stellt denselben stdio-Server im gemeinsamen Docker-Netz
 unter `http://fhem-mcp-http:8000/mcp` als zustandsbehaftetes Streamable HTTP
@@ -208,6 +167,9 @@ Tool** mit Streamable-HTTP-Transport. Beide Clients müssen dem benannten Netz
 [`docs/streamable-http.md`](docs/streamable-http.md). Eine Veröffentlichung auf
 Host, LAN oder Internet erfordert einen separaten authentifizierenden
 TLS-Reverse-Proxy.
+
+Weitere Details zu Variante b stehen in
+[`docs/streamable-http.md`](docs/streamable-http.md).
 
 ## Tests ausführen
 
