@@ -12,11 +12,11 @@ Source View + Runtime View + Sandbox Validation.
 ## Implemented tools
 - list_config_files
 - read_config_file
-- read_live_config_http(base_url, config_path?, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?)
-- read_live_log_http(base_url, log_path?, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?, contains?, regex?, since?, until?, max_lines?, ignore_case?, response_format?, cursor?, context_lines?)
-- list_live_logs_http(base_url, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?)
-- observe_live_events_http(base_url, duration_seconds?, event_monitor_filter? raw regex / TYPE=<type>, device_regex?, event_regex?, max_events?, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?)
-- get_live_device_http(base_url, device_name, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?)
+- read_live_config_http(base_url?, config_path?, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?)
+- read_live_log_http(base_url?, log_path?, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?, contains?, regex?, since?, until?, max_lines?, ignore_case?, response_format?, cursor?, context_lines?)
+- list_live_logs_http(base_url?, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?)
+- observe_live_events_http(base_url?, duration_seconds?, event_monitor_filter? raw regex / TYPE=<type>, device_regex?, event_regex?, max_events?, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?)
+- get_live_device_http(base_url?, device_name, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?)
 - run_live_get_http(device_name, get_parameters, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?)
 - run_live_set_http(device_name, set_parameters, fwcsrf?, timeout_seconds?, username?, password?, ca_file?, ca_path?)
 - list_devices
@@ -34,6 +34,8 @@ Source View + Runtime View + Sandbox Validation.
 
 ### Runtime View contract
 `get_live_device_http` runs the read-only FHEM command `jsonlist2 <device_name>` for one literal, conservatively validated device name. It does not accept arbitrary `devspec` expressions, field selections, or FHEM commands.
+
+For MCP calls, all read-only HTTP tools use `active_runtime_base_url` when `base_url` is omitted. An explicit `base_url` overrides that default. Active Phase 2 GET/SET tools never expose an endpoint override.
 
 An unknown device returns `null`. A matching device returns this normalized shape:
 

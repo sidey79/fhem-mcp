@@ -296,6 +296,51 @@ def test_tools_call_get_live_device_http_roundtrip() -> None:
     assert payload == snapshot
 
 
+def test_read_only_http_tools_expose_optional_base_url() -> None:
+    server = StdioMcpServer(
+        config_root=Path("tests/fixtures"),
+        active_runtime_base_url="https://default.example/fhem",
+    )
+    tools = {tool["name"]: tool["inputSchema"] for tool in server._tools()}
+
+    for name in (
+        "read_live_config_http",
+        "read_live_log_http",
+        "list_live_logs_http",
+        "get_live_device_http",
+        "observe_live_events_http",
+    ):
+        assert "base_url" in tools[name]["properties"]
+        assert "base_url" not in tools[name].get("required", [])
+
+
+def test_get_live_device_http_uses_configured_url_when_omitted() -> None:
+    server = StdioMcpServer(
+        config_root=Path("tests/fixtures"),
+        active_runtime_base_url="https://default.example/fhem",
+    )
+    received: list[object] = []
+    server.backend.get_live_device_http = lambda *args, **kwargs: received.extend(args)
+
+    inp = io.StringIO(
+        json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 66,
+                "method": "tools/call",
+                "params": {
+                    "name": "get_live_device_http",
+                    "arguments": {"device_name": "lamp"},
+                },
+            }
+        )
+        + "\n"
+    )
+    server.run(inp, io.StringIO())
+
+    assert received[:2] == [None, "lamp"]
+
+
 
 def test_tools_call_read_live_log_http_invalid_regex_returns_iserror() -> None:
     responses = _run_server_lines(

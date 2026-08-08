@@ -177,7 +177,7 @@ class StdioMcpServer:
                     "id": req_id,
                     "result": {
                         "protocolVersion": protocol_version,
-                        "serverInfo": {"name": "fhem-mcp", "title": "FHEM Config MCP", "version": "0.10.0"},
+                        "serverInfo": {"name": "fhem-mcp", "title": "FHEM Config MCP", "version": "0.11.0"},
                         "instructions": "FHEM config server with read-only inspection and independently enabled active GET and SET access governed by FHEM authorization.",
                         "capabilities": {"tools": {}},
                     },
@@ -231,7 +231,7 @@ class StdioMcpServer:
             )
         elif tool_name == "read_live_config_http":
             payload = self.backend.read_live_config_http(
-                arguments["base_url"],
+                arguments.get("base_url"),
                 arguments.get("config_path", "fhem.cfg"),
                 arguments.get("fwcsrf"),
                 arguments.get("timeout_seconds", 5.0),
@@ -242,7 +242,7 @@ class StdioMcpServer:
             )
         elif tool_name == "read_live_log_http":
             payload = self.backend.read_live_log_http(
-                arguments["base_url"],
+                arguments.get("base_url"),
                 arguments.get("log_path", "./log/fhem-%Y-%m-%d.log"),
                 arguments.get("fwcsrf"),
                 arguments.get("timeout_seconds", 5.0),
@@ -262,7 +262,7 @@ class StdioMcpServer:
             )
         elif tool_name == "list_live_logs_http":
             payload = self.backend.list_live_logs_http(
-                arguments["base_url"],
+                arguments.get("base_url"),
                 arguments.get("fwcsrf"),
                 arguments.get("timeout_seconds", 5.0),
                 arguments.get("username"),
@@ -272,7 +272,7 @@ class StdioMcpServer:
             )
         elif tool_name == "get_live_device_http":
             payload = self.backend.get_live_device_http(
-                arguments["base_url"],
+                arguments.get("base_url"),
                 arguments["device_name"],
                 arguments.get("fwcsrf"),
                 arguments.get("timeout_seconds", 5.0),
@@ -305,7 +305,7 @@ class StdioMcpServer:
             )
         elif tool_name == "observe_live_events_http":
             payload = self.backend.observe_live_events_http(
-                arguments["base_url"],
+                arguments.get("base_url"),
                 arguments.get("duration_seconds", 10),
                 arguments.get("event_monitor_filter", ".*"),
                 arguments.get("device_regex"),

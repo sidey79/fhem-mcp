@@ -640,6 +640,36 @@ def test_get_live_device_http_returns_none_for_absent_device() -> None:
 
     assert result is None
 
+
+def test_get_live_device_http_uses_configured_default_base_url() -> None:
+    server = FhemMcpServer(
+        config_root=Path("tests/fixtures"),
+        active_runtime_base_url="https://default.example/fhem",
+    )
+
+    with patch.object(server, "_fetch_fwcsrf_http", return_value=None), patch.object(
+        server, "_http_get_text", return_value='{"Results": []}'
+    ) as http_get:
+        result = server.get_live_device_http(None, "lamp")
+
+    assert result is None
+    assert http_get.call_args.args[0].startswith(
+        "https://default.example/fhem?cmd=jsonlist2+lamp&XHR=1"
+    )
+
+
+def test_read_only_http_tool_without_any_base_url_fails_clearly() -> None:
+    server = FhemMcpServer(config_root=Path("tests/fixtures"))
+
+    try:
+        server.get_live_device_http(None, "lamp")
+    except ValueError as exc:
+        assert str(exc) == (
+            "base_url is required when active_runtime_base_url is not configured"
+        )
+    else:
+        raise AssertionError("Expected missing default URL to fail")
+
 def test_get_live_device_http_rejects_unsafe_device_names() -> None:
     server = FhemMcpServer(config_root=Path("tests/fixtures"))
 
