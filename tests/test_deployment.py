@@ -1,4 +1,6 @@
+import json
 from pathlib import Path
+import re
 import tomllib
 
 
@@ -31,6 +33,15 @@ def test_deployment_versions_are_synchronized() -> None:
     assert f'"version": "{version}"' in stdio_server
 
 
-def test_proxy_dependency_is_exactly_pinned() -> None:
+def test_proxy_dependency_is_exactly_pinned_and_managed_by_renovate() -> None:
     dockerfile = (ROOT / "Dockerfile").read_text()
-    assert "mcp-proxy==0.12.0" in dockerfile
+    pin = re.search(
+        r"# renovate: datasource=pypi depName=mcp-proxy versioning=pep440\s+"
+        r"ENV MCP_PROXY_VERSION=(?P<version>\d+(?:\.\d+)+)",
+        dockerfile,
+    )
+    assert pin is not None
+    assert '"mcp-proxy==${MCP_PROXY_VERSION}"' in dockerfile
+
+    renovate = json.loads((ROOT / "renovate.json").read_text())
+    assert "customManagers:dockerfileVersions" in renovate["extends"]
