@@ -1,0 +1,25 @@
+{
+  "mcpServers": {
+    "fhem-cfg-test": {
+      "command": "docker",
+      "args": [
+        "run",
+        "--rm",
+        "-i",
+        "-v",
+        "/home/sven/git_repos/fhem-mcp/tests/fixtures:/config:ro",
+        "-v",
+        "/opt/docker/rootca/root-ca.cert.pem:/opt/docker/rootca/root-ca.cert.pem:ro",
+        "-e",
+        "SSL_CERT_DIR=/opt/docker/rootca",
+        "fhem-mcp:testing",
+        "--config-root",
+        "/config",
+        "mcp-stdio"
+      ],
+      "env": {
+        "PYTHONUNBUFFERED": "1"
+      }
+    }
+  }
+}

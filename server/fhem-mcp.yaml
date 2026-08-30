@@ -1,6 +1,6 @@
 name: fhem-mcp
 display_name: FHEM MCP Server
-version: 0.11.1
+version: 0.11.2
 description: >-
   Read-only MCP server for FHEM configs (Phase 1), including best-effort parsing of
   define/attr/include with source mapping.
@@ -19,7 +19,7 @@ variants:
       - -i
       - -v
       - /ABSOLUTER/PFAD/ZU/FHEM/CONFIG:/config:ro
-      - ghcr.io/sidey79/fhem-mcp:0.11.1
+      - ghcr.io/sidey79/fhem-mcp:0.11.2
       - --config-root
       - /config
       - mcp-stdio

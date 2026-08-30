@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fhem-mcp"
-version = "0.11.1"
+version = "0.11.2"
 description = "Phase 1 skeleton MCP server for safe, read-only FHEM config access"
 readme = "README.md"
 requires-python = ">=3.13"
@@ -12,6 +12,7 @@ dependencies = ["fastmcp>=2.0", "pydantic>=2.7"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
+proxy = ["mcp-proxy==0.12.0"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

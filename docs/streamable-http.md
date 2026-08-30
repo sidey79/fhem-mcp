@@ -1,7 +1,8 @@
 # Streamable HTTP mit Docker Compose
 
-Der bestehende Server bleibt ein stdio-MCP-Server. Im Docker-Image übersetzt
-`mcp-proxy==0.12.0` diesen Transport in zustandsbehaftetes Streamable HTTP.
+Der bestehende Server bleibt ein stdio-MCP-Server. Das in `pyproject.toml`
+(`proxy`-Extra) gepinnte `mcp-proxy` übersetzt diesen Transport in
+zustandsbehaftetes Streamable HTTP.
 Legacy HTTP+SSE wird nicht als öffentliche Schnittstelle angeboten.
 
 ## Start
@@ -82,7 +83,7 @@ Der stdio-Server kann ebenfalls direkt aus GHCR gestartet werden:
 ```bash
 docker run --rm -i \
   -v "$FHEM_CONFIG_PATH:/config:ro" \
-  ghcr.io/sidey79/fhem-mcp:0.11.1 --config-root /config mcp-stdio
+  ghcr.io/sidey79/fhem-mcp:0.11.2 --config-root /config mcp-stdio
 ```
 
 Ein vollständiger Bridge-Smoke-Test wird in CI ausgeführt. Lokal kann er nach
