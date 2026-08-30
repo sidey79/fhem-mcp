@@ -34,14 +34,18 @@ def test_deployment_versions_are_synchronized() -> None:
 
 
 def test_proxy_dependency_is_exactly_pinned_and_managed_by_renovate() -> None:
-    dockerfile = (ROOT / "Dockerfile").read_text()
-    pin = re.search(
-        r"# renovate: datasource=pypi depName=mcp-proxy versioning=pep440\s+"
-        r"ENV MCP_PROXY_VERSION=(?P<version>\d+(?:\.\d+)+)",
-        dockerfile,
-    )
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    proxy_deps = pyproject["project"]["optional-dependencies"]["proxy"]
+    pin = re.fullmatch(r"mcp-proxy==(?P<version>\d+(?:\.\d+)+)", proxy_deps[0])
     assert pin is not None
-    assert '"mcp-proxy==${MCP_PROXY_VERSION}"' in dockerfile
+
+    dockerfile = (ROOT / "Dockerfile").read_text()
+    assert "[proxy]" in dockerfile
 
     renovate = json.loads((ROOT / "renovate.json").read_text())
     assert "customManagers:dockerfileVersions" in renovate["extends"]
+    package_rules = renovate["packageRules"]
+    assert any(
+        rule.get("matchManagers") == ["pep621"] and rule.get("bumpVersion") == "patch"
+        for rule in package_rules
+    )
