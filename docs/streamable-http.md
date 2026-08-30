@@ -1,7 +1,8 @@
 # Streamable HTTP mit Docker Compose
 
-Der bestehende Server bleibt ein stdio-MCP-Server. Das im Dockerfile gepinnte
-`mcp-proxy` übersetzt diesen Transport in zustandsbehaftetes Streamable HTTP.
+Der bestehende Server bleibt ein stdio-MCP-Server. Das in `pyproject.toml`
+(`proxy`-Extra) gepinnte `mcp-proxy` übersetzt diesen Transport in
+zustandsbehaftetes Streamable HTTP.
 Legacy HTTP+SSE wird nicht als öffentliche Schnittstelle angeboten.
 
 ## Start
