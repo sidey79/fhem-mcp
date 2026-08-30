@@ -114,7 +114,7 @@ Der Parser ist absichtlich **best-effort**:
 ## Installation
 
 Für den normalen Betrieb wird ausschließlich das veröffentlichte Docker-Image
-`ghcr.io/sidey79/fhem-mcp:0.11.1` verwendet. Wähle abhängig vom MCP-Client
+`ghcr.io/sidey79/fhem-mcp:0.11.2` verwendet. Wähle abhängig vom MCP-Client
 einen der beiden Transportwege.
 
 ### a) stdio
@@ -134,7 +134,7 @@ Read-only-Mount auf den FHEM-Config-Ordner:
         "-i",
         "-v",
         "/ABSOLUTER/PFAD/ZU/DEINEN/FHEM/CONFIGS:/config:ro",
-        "ghcr.io/sidey79/fhem-mcp:0.11.1",
+        "ghcr.io/sidey79/fhem-mcp:0.11.2",
         "--config-root",
         "/config",
         "mcp-stdio"
