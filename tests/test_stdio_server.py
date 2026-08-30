@@ -2,7 +2,7 @@ import io
 import json
 from pathlib import Path
 
-from fhem_mcp.stdio_server import StdioMcpServer
+from fhem_mcp.stdio_server import StdioMcpServer, _redact_secrets
 
 
 def _run_server_lines(lines: list[dict], config_root: Path) -> list[dict]:
@@ -529,3 +529,12 @@ def test_live_get_and_set_tool_roundtrip_and_strict_schema() -> None:
         assert tools[name]["additionalProperties"] is False
         assert {"device_name", parameter}.issubset(tools[name]["required"])
         assert "base_url" not in tools[name]["properties"]
+
+
+def test_redact_secrets_masks_credential_fields() -> None:
+    raw = '{"name":"run_live_set_http","arguments":{"username":"alice","password":"hunter2","fwcsrf":"tok"}}'
+    redacted = _redact_secrets(raw)
+    assert "hunter2" not in redacted
+    assert "alice" not in redacted
+    assert "tok" not in redacted
+    assert redacted.count('"***"') == 3

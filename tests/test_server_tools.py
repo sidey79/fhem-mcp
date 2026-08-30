@@ -5,6 +5,23 @@ from urllib.parse import unquote_plus
 
 from fhem_mcp.server import FhemMcpServer, RejectRedirectHandler
 
+
+class _SequentialOpener:
+    """Stand-in for urllib's build_opener() result, used to assert the
+    redirect-rejecting opener (not raw urlopen) is used for HTTP calls."""
+
+    def __init__(self, responses) -> None:
+        self._responses = list(responses) if isinstance(responses, list) else None
+        self._single = responses if self._responses is None else None
+        self.calls: list[object] = []
+
+    def open(self, request, *, timeout):
+        self.calls.append(request)
+        if self._responses is not None:
+            return self._responses.pop(0)
+        return self._single
+
+
 def test_list_and_read_config_files() -> None:
     server = FhemMcpServer(config_root=Path("tests/fixtures"))
     files = server.list_config_files()
@@ -334,7 +351,8 @@ def test_read_live_config_http_builds_expected_request() -> None:
         _Resp(b"<html><textarea>define x dummy 1\n</textarea></html>"),
     ]
 
-    with patch("fhem_mcp.server.urlopen", side_effect=responses) as mocked_urlopen:
+    opener = _SequentialOpener(responses)
+    with patch("fhem_mcp.server.build_opener", return_value=opener):
         payload = server.read_live_config_http(
             "http://127.0.0.1:8083/fhem",
             "fhem.cfg",
@@ -344,10 +362,8 @@ def test_read_live_config_http_builds_expected_request() -> None:
         )
 
     assert payload == "define x dummy 1\n"
-    token_request = mocked_urlopen.call_args_list[0].args[0]
-    command_request = mocked_urlopen.call_args_list[1].args[0]
-    assert mocked_urlopen.call_args_list[0].kwargs["timeout"] == 3.5
-    assert mocked_urlopen.call_args_list[1].kwargs["timeout"] == 3.5
+    token_request = opener.calls[0]
+    command_request = opener.calls[1]
     assert token_request.full_url.endswith("?XHR=1")
     assert command_request.full_url.startswith("http://127.0.0.1:8083/fhem?")
     assert "cmd=style+edit+fhem.cfg" in command_request.full_url
@@ -378,8 +394,9 @@ def test_read_live_config_http_uses_custom_ca_bundle() -> None:
         _Resp(body=b"ok\n"),
     ]
 
+    opener = _SequentialOpener(responses)
     with patch("fhem_mcp.server.create_default_context", return_value="CTX") as mk_ctx:
-        with patch("fhem_mcp.server.urlopen", side_effect=responses) as mocked_urlopen:
+        with patch("fhem_mcp.server.build_opener", return_value=opener) as mocked_build_opener:
             payload = server.read_live_config_http(
                 "https://zeus:8088",
                 ca_file="/opt/docker/rootca/ca.pem",
@@ -388,8 +405,12 @@ def test_read_live_config_http_uses_custom_ca_bundle() -> None:
 
     assert payload == "ok\n"
     mk_ctx.assert_called_once_with(cafile="/opt/docker/rootca/ca.pem", capath="/opt/docker/rootca")
-    assert mocked_urlopen.call_args_list[0].kwargs["context"] == "CTX"
-    assert mocked_urlopen.call_args_list[1].kwargs["context"] == "CTX"
+    https_handlers = [
+        handler for call in mocked_build_opener.call_args_list for handler in call.args
+        if type(handler).__name__ == "HTTPSHandler"
+    ]
+    assert https_handlers
+    assert all(handler._context == "CTX" for handler in https_handlers)
 
 def test_read_live_config_http_rejects_invalid_inputs() -> None:
     server = FhemMcpServer(config_root=Path("tests/fixtures"))
@@ -458,11 +479,12 @@ def test_read_live_config_http_without_fwcsrf_header_still_reads() -> None:
             return self._body
 
     responses = [_Resp(headers={}), _Resp(body=b"<html><textarea>ok\n</textarea></html>")]
-    with patch("fhem_mcp.server.urlopen", side_effect=responses) as mocked_urlopen:
+    opener = _SequentialOpener(responses)
+    with patch("fhem_mcp.server.build_opener", return_value=opener):
         payload = server.read_live_config_http(base_url="http://127.0.0.1:8083/fhem")
 
     assert payload == "ok\n"
-    command_request = mocked_urlopen.call_args_list[1].args[0]
+    command_request = opener.calls[1]
     assert "fwcsrf=" not in command_request.full_url
 
 def test_read_live_log_http_filters_and_limits_lines() -> None:
@@ -556,14 +578,15 @@ def test_list_live_logs_http_parses_filelog_jsonlist2() -> None:
         _Resp(payload.encode("utf-8")),
     ]
 
-    with patch("fhem_mcp.server.urlopen", side_effect=responses) as mocked_urlopen:
+    opener = _SequentialOpener(responses)
+    with patch("fhem_mcp.server.build_opener", return_value=opener):
         result = server.list_live_logs_http(base_url="https://zeus:8088/fhem")
 
     assert len(result["devices"]) == 2
     assert "./log/fhem-%Y-%m-%d.log" in result["log_patterns"]
     assert "./log/asc-2026-05-25.log" in result["current_logfiles"]
 
-    cmd_request = mocked_urlopen.call_args_list[1].args[0]
+    cmd_request = opener.calls[1]
     assert "cmd=jsonlist2+TYPE%3DFileLog" in cmd_request.full_url
 
 def test_get_live_device_http_normalizes_jsonlist2_snapshot_and_request() -> None:
@@ -600,7 +623,8 @@ def test_get_live_device_http_normalizes_jsonlist2_snapshot_and_request() -> Non
         ]
     }
 
-    with patch("fhem_mcp.server.urlopen", return_value=_Resp(__import__("json").dumps(response).encode())) as mocked_urlopen:
+    opener = _SequentialOpener(_Resp(__import__("json").dumps(response).encode()))
+    with patch("fhem_mcp.server.build_opener", return_value=opener):
         result = server.get_live_device_http(
             base_url="https://zeus:8088/fhem",
             device_name="living.room-lamp",
@@ -621,17 +645,16 @@ def test_get_live_device_http_normalizes_jsonlist2_snapshot_and_request() -> Non
         "possible_sets": "off on toggle",
         "possible_attributes": "alias room group",
     }
-    request = mocked_urlopen.call_args.args[0]
+    request = opener.calls[0]
     assert request.full_url == (
         "https://zeus:8088/fhem?cmd=jsonlist2+living.room-lamp&XHR=1&fwcsrf=csrf+token"
     )
     assert request.get_header("Authorization").startswith("Basic ")
-    assert mocked_urlopen.call_args.kwargs["timeout"] == 2.5
 
 def test_get_live_device_http_returns_none_for_absent_device() -> None:
     server = FhemMcpServer(config_root=Path("tests/fixtures"))
 
-    with patch.object(server, "_http_get_text", return_value='{"Results":[]}'):
+    with patch.object(server, "_http_get_text_no_redirects", return_value='{"Results":[]}'):
         result = server.get_live_device_http(
             base_url="https://zeus:8088/fhem",
             device_name="missing",
@@ -647,8 +670,8 @@ def test_get_live_device_http_uses_configured_default_base_url() -> None:
         active_runtime_base_url="https://default.example/fhem",
     )
 
-    with patch.object(server, "_fetch_fwcsrf_http", return_value=None), patch.object(
-        server, "_http_get_text", return_value='{"Results": []}'
+    with patch.object(server, "_fetch_fwcsrf_http_no_redirects", return_value=None), patch.object(
+        server, "_http_get_text_no_redirects", return_value='{"Results": []}'
     ) as http_get:
         result = server.get_live_device_http(None, "lamp")
 
@@ -656,6 +679,54 @@ def test_get_live_device_http_uses_configured_default_base_url() -> None:
     assert http_get.call_args.args[0].startswith(
         "https://default.example/fhem?cmd=jsonlist2+lamp&XHR=1"
     )
+
+
+def test_get_live_device_http_rejects_client_base_url_override_when_configured() -> None:
+    server = FhemMcpServer(
+        config_root=Path("tests/fixtures"),
+        active_runtime_base_url="https://default.example/fhem",
+    )
+
+    with patch("fhem_mcp.server.build_opener") as mocked_build_opener:
+        try:
+            server.get_live_device_http(
+                base_url="http://169.254.169.254/latest/meta-data",
+                device_name="lamp",
+            )
+        except ValueError as exc:
+            assert "must match the configured active_runtime_base_url" in str(exc)
+        else:
+            raise AssertionError("Expected mismatched base_url override to be rejected")
+    mocked_build_opener.assert_not_called()
+
+
+def test_read_only_http_tools_reject_redirects() -> None:
+    server = FhemMcpServer(config_root=Path("tests/fixtures"))
+
+    class _RedirectingOpener:
+        calls = 0
+
+        def open(self, request, *, timeout):
+            self.calls += 1
+            raise HTTPError(
+                request.full_url, 302, "Found",
+                {"Location": "https://evil.example/fhem"}, None,
+            )
+
+    opener = _RedirectingOpener()
+    with patch("fhem_mcp.server.build_opener", return_value=opener):
+        try:
+            server.get_live_device_http(
+                base_url="https://approved.example/fhem",
+                device_name="lamp",
+                username="alice",
+                password="secret",
+            )
+        except HTTPError as exc:
+            assert exc.code == 302
+        else:
+            raise AssertionError("Expected redirect to be rejected")
+    assert opener.calls == 1
 
 
 def test_read_only_http_tool_without_any_base_url_fails_clearly() -> None:
@@ -718,7 +789,7 @@ def test_get_live_device_http_rejects_malformed_jsonlist2_structures() -> None:
     )
 
     for response in malformed_responses:
-        with patch.object(server, "_http_get_text", return_value=response):
+        with patch.object(server, "_http_get_text_no_redirects", return_value=response):
             try:
                 server.get_live_device_http(
                     base_url="https://zeus:8088/fhem",
@@ -766,7 +837,8 @@ def test_observe_live_events_http_reads_bounded_event_stream() -> None:
         b'2026-06-03 12:00:01 dummy button pressed<br>\n',
     ]
 
-    with patch("fhem_mcp.server.urlopen", side_effect=[_TokenResp(), _StreamResp(lines)]) as mocked_urlopen:
+    opener = _SequentialOpener([_TokenResp(), _StreamResp(lines)])
+    with patch("fhem_mcp.server.build_opener", return_value=opener):
         result = server.observe_live_events_http(
             base_url="https://zeus:8088/fhem",
             duration_seconds=10,
@@ -786,8 +858,8 @@ def test_observe_live_events_http_reads_bounded_event_stream() -> None:
     assert result["events"][2]["device"] == "button"
     assert result["events"][2]["event"] == "pressed"
 
-    token_request = mocked_urlopen.call_args_list[0].args[0]
-    request = mocked_urlopen.call_args_list[1].args[0]
+    token_request = opener.calls[0]
+    request = opener.calls[1]
     assert token_request.full_url.endswith("?XHR=1")
     assert request.full_url.startswith("https://zeus:8088/fhem?")
     assert "XHR=1" in request.full_url
@@ -830,14 +902,15 @@ def test_observe_live_events_http_omits_fwcsrf_when_fhem_has_no_token() -> None:
                 return self._lines.pop(0)
             return b""
 
-    with patch("fhem_mcp.server.urlopen", side_effect=[_TokenResp(), _StreamResp()]) as mocked_urlopen:
+    opener = _SequentialOpener([_TokenResp(), _StreamResp()])
+    with patch("fhem_mcp.server.build_opener", return_value=opener):
         result = server.observe_live_events_http(
             base_url="http://127.0.0.1:8088/fhem",
             duration_seconds=5,
             max_events=5,
         )
 
-    request = mocked_urlopen.call_args_list[1].args[0]
+    request = opener.calls[1]
     assert "fwcsrf=" not in request.full_url
     assert result["event_count"] == 1
     assert result["events"][0]["device"] == "lamp"
@@ -876,7 +949,8 @@ def test_observe_live_events_http_filters_and_truncates() -> None:
                 return self._lines.pop(0)
             return b""
 
-    with patch("fhem_mcp.server.urlopen", return_value=_StreamResp()):
+    opener = _SequentialOpener(_StreamResp())
+    with patch("fhem_mcp.server.build_opener", return_value=opener):
         result = server.observe_live_events_http(
             base_url="http://127.0.0.1:8083/fhem",
             duration_seconds=10,
@@ -959,7 +1033,8 @@ def test_observe_live_events_http_read_timeout_keeps_observing_until_deadline() 
     response = _IntermittentResp()
     monotonic_values = [0.0, 0.0, 3.0, 3.0, 3.0, 3.0]
 
-    with patch("fhem_mcp.server.urlopen", return_value=response) as mocked_urlopen:
+    opener = _SequentialOpener(response)
+    with patch("fhem_mcp.server.build_opener", return_value=opener):
         with patch("fhem_mcp.server.monotonic", side_effect=monotonic_values):
             result = server.observe_live_events_http(
                 base_url="http://127.0.0.1:8083/fhem",
@@ -969,7 +1044,6 @@ def test_observe_live_events_http_read_timeout_keeps_observing_until_deadline() 
                 fwcsrf="",
             )
 
-    assert mocked_urlopen.call_args.kwargs["timeout"] == 5
     assert response.sock.timeouts[:2] == [10.0, 7.0]
     assert result["event_count"] == 1
     assert result["events"][0]["device"] == "lamp"

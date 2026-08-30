@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from datetime import datetime
 from dataclasses import dataclass
 from pathlib import Path
@@ -9,6 +10,15 @@ from typing import Any, BinaryIO, TextIO
 
 from .mcp_schema import TOOL_DEFINITIONS, build_tool_list
 from .server import FhemMcpServer
+
+_SECRET_FIELD_PATTERN = re.compile(
+    r'("(?:password|username|fwcsrf|authorization)"\s*:\s*)"[^"]*"',
+    re.IGNORECASE,
+)
+
+
+def _redact_secrets(message: str) -> str:
+    return _SECRET_FIELD_PATTERN.sub(r'\1"***"', message)
 
 
 @dataclass
@@ -75,8 +85,13 @@ class StdioMcpServer:
         if os.getenv("FHEM_MCP_DEBUG", "").lower() not in ("1", "true", "yes", "on"):
             return
         try:
-            with open("/tmp/fhem-mcp-handshake.log", "a", encoding="utf-8") as fh:
-                fh.write(f"{datetime.now().isoformat()} {message}\n")
+            fd = os.open(
+                "/tmp/fhem-mcp-handshake.log",
+                os.O_CREAT | os.O_APPEND | os.O_WRONLY,
+                0o600,
+            )
+            with os.fdopen(fd, "a", encoding="utf-8") as fh:
+                fh.write(f"{datetime.now().isoformat()} {_redact_secrets(message)}\n")
         except Exception:
             pass
 

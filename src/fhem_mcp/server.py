@@ -6,6 +6,7 @@ from hashlib import sha256
 from html import unescape
 import json
 import unicodedata
+from select import select
 from socket import timeout as SocketTimeout
 from ssl import SSLContext, create_default_context
 from dataclasses import dataclass
@@ -307,32 +308,6 @@ class FhemMcpServer:
             return None
         return create_default_context(cafile=ca_file, capath=ca_path)
 
-    def _fetch_fwcsrf_http(
-        self,
-        base_url: str,
-        timeout_seconds: float,
-        username: str | None,
-        password: str | None,
-        ssl_context: SSLContext | None,
-    ) -> str:
-        separator = "&" if "?" in base_url else "?"
-        token_url = f"{base_url}{separator}XHR=1"
-        request = Request(token_url, method="GET")
-        if username is not None and password is not None:
-            auth = b64encode(f"{username}:{password}".encode("utf-8")).decode("ascii")
-            request.add_header("Authorization", f"Basic {auth}")
-
-        if ssl_context is None:
-            response_ctx = urlopen(request, timeout=timeout_seconds)
-        else:
-            response_ctx = urlopen(request, timeout=timeout_seconds, context=ssl_context)
-        with response_ctx as response:
-            token = response.headers.get("X-FHEM-csrfToken")
-
-        if token is None or not token.strip():
-            return ""
-        return token.strip()
-
     def _fetch_fwcsrf_http_no_redirects(
         self,
         base_url: str,
@@ -364,24 +339,6 @@ class FhemMcpServer:
         if username is not None and password is not None:
             auth = b64encode(f"{username}:{password}".encode("utf-8")).decode("ascii")
             request.add_header("Authorization", f"Basic {auth}")
-
-    def _http_get_text(
-        self,
-        request_url: str,
-        timeout_seconds: float,
-        username: str | None,
-        password: str | None,
-        ssl_context: SSLContext | None,
-    ) -> str:
-        request = Request(request_url, method="GET")
-        self._request_with_optional_auth(request, username, password)
-        if ssl_context is None:
-            response_ctx = urlopen(request, timeout=timeout_seconds)
-        else:
-            response_ctx = urlopen(request, timeout=timeout_seconds, context=ssl_context)
-        with response_ctx as response:
-            payload = response.read()
-        return payload.decode("utf-8", errors="replace")
 
     def _http_get_text_no_redirects(
         self,
@@ -516,12 +473,19 @@ class FhemMcpServer:
         return False
 
     @staticmethod
-    def _set_response_read_timeout(response: object, timeout_seconds: float) -> None:
+    def _set_response_read_timeout(response: object, timeout_seconds: float) -> bool:
+        """Best-effort: bound the next blocking read via the underlying socket.
+
+        Returns True if a timeout could be applied, False otherwise so callers
+        can fall back to a select()-based bound instead of blocking forever.
+        """
         fp = getattr(response, "fp", None)
         raw = getattr(fp, "raw", None)
         sock = getattr(raw, "_sock", None)
         if sock is not None and hasattr(sock, "settimeout"):
             sock.settimeout(timeout_seconds)
+            return True
+        return False
 
     @staticmethod
     def _serialize_event(event: FhemEvent) -> dict[str, str | None]:
@@ -594,7 +558,7 @@ class FhemMcpServer:
         device_pattern = self._compile_optional_regex(device_regex, "device_regex")
         event_pattern = self._compile_optional_regex(event_regex, "event_regex")
         ssl_context = self._build_tls_context(ca_file, ca_path)
-        token = fwcsrf if fwcsrf is not None else self._fetch_fwcsrf_http(base_url, timeout_seconds, username, password, ssl_context)
+        token = fwcsrf if fwcsrf is not None else self._fetch_fwcsrf_http_no_redirects(base_url, timeout_seconds, username, password, ssl_context)
 
         query_parts = [
             "XHR=1",
@@ -609,17 +573,28 @@ class FhemMcpServer:
         deadline = monotonic() + duration_seconds
         events: list[FhemEvent] = []
         truncated = False
-        if ssl_context is None:
-            response_ctx = urlopen(request, timeout=timeout_seconds)
-        else:
-            response_ctx = urlopen(request, timeout=timeout_seconds, context=ssl_context)
+        handlers: list[BaseHandler] = [RejectRedirectHandler()]
+        if ssl_context is not None:
+            handlers.append(HTTPSHandler(context=ssl_context))
+        opener = build_opener(*handlers)
 
-        with response_ctx as response:
+        with opener.open(request, timeout=timeout_seconds) as response:
             while True:
                 remaining = deadline - monotonic()
                 if remaining <= 0:
                     break
-                self._set_response_read_timeout(response, remaining)
+                has_socket_timeout = self._set_response_read_timeout(response, remaining)
+                if not has_socket_timeout:
+                    fileno = getattr(response, "fileno", None)
+                    if callable(fileno):
+                        try:
+                            readable, _, _ = select([fileno()], [], [], remaining)
+                        except (OSError, ValueError):
+                            readable = None
+                        if readable is not None and not readable:
+                            if monotonic() >= deadline:
+                                break
+                            continue
                 try:
                     raw = response.readline()
                 except (TimeoutError, SocketTimeout):
@@ -680,7 +655,7 @@ class FhemMcpServer:
             raise ValueError("username and password must be provided together")
 
         ssl_context = self._build_tls_context(ca_file, ca_path)
-        token = fwcsrf if fwcsrf is not None else self._fetch_fwcsrf_http(base_url, timeout_seconds, username, password, ssl_context)
+        token = fwcsrf if fwcsrf is not None else self._fetch_fwcsrf_http_no_redirects(base_url, timeout_seconds, username, password, ssl_context)
 
         cmd = f"style edit {target_cfg}"
         query_parts = [f"cmd={quote_plus(cmd)}"]
@@ -688,7 +663,7 @@ class FhemMcpServer:
             query_parts.append(f"fwcsrf={quote_plus(token)}")
         request_url = self._build_live_request(base_url, query_parts)
 
-        decoded = self._http_get_text(request_url, timeout_seconds, username, password, ssl_context)
+        decoded = self._http_get_text_no_redirects(request_url, timeout_seconds, username, password, ssl_context)
         match = re.search(r"<textarea[^>]*>(.*?)</textarea>", decoded, flags=re.IGNORECASE | re.DOTALL)
         if match is not None:
             return unescape(match.group(1))
@@ -910,13 +885,13 @@ class FhemMcpServer:
             raise ValueError("username and password must be provided together")
 
         ssl_context = self._build_tls_context(ca_file, ca_path)
-        token = fwcsrf if fwcsrf is not None else self._fetch_fwcsrf_http(base_url, timeout_seconds, username, password, ssl_context)
+        token = fwcsrf if fwcsrf is not None else self._fetch_fwcsrf_http_no_redirects(base_url, timeout_seconds, username, password, ssl_context)
 
         query_parts = [f"cmd={quote_plus('jsonlist2 TYPE=FileLog')}", "XHR=1"]
         if token:
             query_parts.append(f"fwcsrf={quote_plus(token)}")
         request_url = self._build_live_request(base_url, query_parts)
-        decoded = self._http_get_text(request_url, timeout_seconds, username, password, ssl_context)
+        decoded = self._http_get_text_no_redirects(request_url, timeout_seconds, username, password, ssl_context)
 
         results = self._parse_jsonlist2_response(decoded, "FileLog")
 
@@ -984,14 +959,14 @@ class FhemMcpServer:
             raise ValueError("username and password must be provided together")
 
         ssl_context = self._build_tls_context(ca_file, ca_path)
-        token = fwcsrf if fwcsrf is not None else self._fetch_fwcsrf_http(
+        token = fwcsrf if fwcsrf is not None else self._fetch_fwcsrf_http_no_redirects(
             base_url, timeout_seconds, username, password, ssl_context
         )
         query_parts = [f"cmd={quote_plus(f'jsonlist2 {target_device}')}", "XHR=1"]
         if token:
             query_parts.append(f"fwcsrf={quote_plus(token)}")
         request_url = self._build_live_request(base_url, query_parts)
-        decoded = self._http_get_text(
+        decoded = self._http_get_text_no_redirects(
             request_url, timeout_seconds, username, password, ssl_context
         )
         results = self._parse_jsonlist2_response(
@@ -1129,13 +1104,21 @@ class FhemMcpServer:
         return self.active_runtime_base_url
 
     def _read_runtime_url(self, base_url: str | None) -> str:
-        resolved = base_url if base_url is not None else self.active_runtime_base_url
-        if resolved is None:
+        if self.active_runtime_base_url is not None:
+            if base_url is not None:
+                self._validate_live_base_url(base_url)
+                if base_url != self.active_runtime_base_url:
+                    raise ValueError(
+                        "base_url must match the configured active_runtime_base_url; "
+                        "omit base_url to use the configured instance"
+                    )
+            return self.active_runtime_base_url
+        if base_url is None:
             raise ValueError(
                 "base_url is required when active_runtime_base_url is not configured"
             )
-        self._validate_live_base_url(resolved)
-        return resolved
+        self._validate_live_base_url(base_url)
+        return base_url
 
     @staticmethod
     def _validate_live_command_parameters(
