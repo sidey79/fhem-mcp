@@ -2,5 +2,16 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "customManagers:dockerfileVersions"
+  ],
+  "packageRules": [
+    {
+      "matchManagers": ["pep621"],
+      "bumpVersion": "patch"
+    },
+    {
+      "matchManagers": ["dockerfile"],
+      "matchPackageNames": ["python"],
+      "addLabels": ["bump-project-version"]
+    }
   ]
 }
