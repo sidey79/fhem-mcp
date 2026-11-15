@@ -6,6 +6,7 @@ services:
     command:
       - --host=0.0.0.0
       - --port=8000
+      - --allowed-host=fhem-mcp-http:8000
       - --no-stateless
       - --
       - fhem-mcp
