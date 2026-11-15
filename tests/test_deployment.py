@@ -18,6 +18,7 @@ def test_compose_security_contract() -> None:
     assert "--enable-set" not in compose
     assert "--allow-origin" not in compose
     assert "--no-stateless" in compose
+    assert "--allowed-host=fhem-mcp-http:8000" in compose
     assert "name: fhem-mcp" in compose
     assert "/status" in compose
 
